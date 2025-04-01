@@ -37,3 +37,8 @@ type CustomClaims struct {
 	UserID int64 `json:"userID"`
 	jwt.RegisteredClaims
 }
+
+// *** NEW: Request struct for creating a database ***
+type CreateDatabaseRequest struct {
+	DBName string `json:"db_name" binding:"required"`
+}

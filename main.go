@@ -64,7 +64,14 @@ func main() {
 			})
 		})
 
-		// Database management routes will be added here later
+		// *** NEW: Register database creation route ***
+		// Handler is in db_handlers.go
+		apiRoutes.POST("/databases", createDatabaseHandler)
+		// *** END NEW ***
+
+		// Schema definition route will go here next:
+		// apiRoutes.POST("/databases/:db_name/schema", createSchemaHandler)
+		// ... CRUD routes ...
 	}
 
 	// Start the server
