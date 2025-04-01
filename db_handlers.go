@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings" // Import strings
 
 	"github.com/gin-gonic/gin"
@@ -444,8 +445,6 @@ func createRecordHandler(c *gin.Context) {
 	})
 }
 
-// --- *** NEW: Handler for Listing Records *** ---
-
 // listRecordsHandler handles retrieving all records from a user-defined table
 func listRecordsHandler(c *gin.Context) {
 	// 1. Get UserID, DBName, TableName
@@ -555,6 +554,146 @@ func listRecordsHandler(c *gin.Context) {
 
 	// 7. Return the results
 	c.JSON(http.StatusOK, results) // Return 200 OK with the slice of records (can be empty)
+}
+
+// --- *** NEW: Handler for Getting a Single Record *** ---
+
+// getRecordHandler handles retrieving a single record by ID
+func getRecordHandler(c *gin.Context) {
+	// 1. Get UserID, DBName, TableName, RecordID
+	userID := c.MustGet("userID").(int64)
+	dbName := c.Param("db_name")
+	tableName := c.Param("table_name")
+	recordIDStr := c.Param("record_id")
+
+	if !isValidName(dbName) || !isValidName(tableName) {
+		log.Printf("Get Record: Invalid DB/Table name in path for UserID %d: DB '%s', Table '%s'", userID, dbName, tableName)
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid database or table name in URL path."})
+		return
+	}
+
+	// Validate and convert record_id
+	recordID, err := strconv.ParseInt(recordIDStr, 10, 64)
+	if err != nil {
+		log.Printf("Get Record: Invalid Record ID format for UserID %d: %s", userID, recordIDStr)
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid record ID format. Must be an integer."})
+		return
+	}
+
+	// 2. Look up the database file path
+	var dbFilePath string
+	lookupSQL := `SELECT file_path FROM databases WHERE user_id = ? AND db_name = ? LIMIT 1`
+	err = metaDB.QueryRowContext(c.Request.Context(), lookupSQL, userID, dbName).Scan(&dbFilePath)
+	if err != nil { // Handle DB lookup errors (404, 500)
+		if errors.Is(err, sql.ErrNoRows) {
+			c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "Database not found or not registered."})
+			return
+		}
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve database information."})
+		return
+	}
+
+	// 3. Connect to the specific user's database file
+	userDB, err := sql.Open("sqlite3", dbFilePath+"?_foreign_keys=on")
+	if err != nil { // Handle DB connection errors (500)
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to access database storage."})
+		return
+	}
+	defer userDB.Close()
+	if err = userDB.PingContext(c.Request.Context()); err != nil {
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to connect to database storage."})
+		return
+	}
+
+	// 4. Construct the SELECT * ... WHERE id = ? SQL statement
+	selectSQL := fmt.Sprintf("SELECT * FROM %s WHERE id = ? LIMIT 1;", tableName) // tableName validated
+	log.Printf("Executing Record Get SQL for UserID %d, DB '%s', Table '%s', ID %d: %s", userID, dbName, tableName, recordID, selectSQL)
+
+	// 5. Execute the SELECT query for a single row
+	// row := userDB.QueryRowContext(c.Request.Context(), selectSQL, recordID)
+
+	// 6. Process the single result
+	// We need columns first to scan correctly into map
+	// This is slightly inefficient as QueryRow doesn't expose columns directly before Scan.
+	// Alternative: Use QueryContext, get columns, then check if Next() is true only once.
+	// Let's stick to QueryRow for simplicity, but fetch columns with a dummy query first (or assume they are consistent)
+	// Better approach: Use QueryContext instead of QueryRowContext
+	rows, err := userDB.QueryContext(c.Request.Context(), selectSQL, recordID)
+	if err != nil {
+		log.Printf("Failed to execute SELECT query for single record UserID %d, DB '%s', Table '%s', ID %d: %v", userID, dbName, tableName, recordID, err)
+		if strings.Contains(err.Error(), "no such table") {
+			c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("Table '%s' not found.", tableName)})
+			return
+		}
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to query record."})
+		return
+	}
+	defer rows.Close()
+
+	columns, err := rows.Columns()
+	if err != nil {
+		log.Printf("Failed to get columns for single record UserID %d, DB '%s', Table '%s', ID %d: %v", userID, dbName, tableName, recordID, err)
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to process query results."})
+		return
+	}
+	numColumns := len(columns)
+
+	// Check if there is a row
+	if !rows.Next() {
+		// Check for error first, maybe connection died
+		if err = rows.Err(); err != nil {
+			log.Printf("Error checking row existence for UserID %d, DB '%s', Table '%s', ID %d: %v", userID, dbName, tableName, recordID, err)
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to check for record."})
+			return
+		}
+		// No error, just no rows found
+		log.Printf("Record not found for UserID %d, DB '%s', Table '%s', ID %d", userID, dbName, tableName, recordID)
+		c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "Record not found."})
+		return
+	}
+
+	// Prepare to scan the single row found
+	scanArgs := make([]interface{}, numColumns)
+	values := make([]interface{}, numColumns)
+	for i := range values {
+		scanArgs[i] = &values[i]
+	}
+
+	// Scan the row
+	if err := rows.Scan(scanArgs...); err != nil {
+		// This specific check handles the case where QueryRowContext is used instead of QueryContext
+		// if errors.Is(err, sql.ErrNoRows) {
+		// 	log.Printf("Record not found for UserID %d, DB '%s', Table '%s', ID %d", userID, dbName, tableName, recordID)
+		// 	c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "Record not found."})
+		// 	return
+		// }
+		// Handle other potential scan errors
+		log.Printf("Failed to scan row for single record UserID %d, DB '%s', Table '%s', ID %d: %v", userID, dbName, tableName, recordID, err)
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to read record data."})
+		return
+	}
+
+	// Ensure no more rows (shouldn't happen with LIMIT 1 and primary key lookup)
+	if rows.Next() {
+		log.Printf("WARN: More than one row found for UserID %d, DB '%s', Table '%s', ID %d", userID, dbName, tableName, recordID)
+		// Still return the first one found, but log warning
+	}
+
+	// Create a map for the row data
+	rowData := make(map[string]interface{})
+	for i, colName := range columns {
+		rawValue := values[i]
+		if byteSlice, ok := rawValue.([]byte); ok {
+			rowData[colName] = string(byteSlice)
+		} else {
+			rowData[colName] = rawValue
+		}
+	}
+
+	log.Printf("Successfully retrieved record ID %d from DB '%s', Table '%s' for UserID %d", recordID, dbName, tableName, userID)
+
+	// 7. Return the single record
+	c.JSON(http.StatusOK, rowData)
 }
 
 // --- *** END NEW *** ---
