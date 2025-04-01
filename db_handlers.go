@@ -694,10 +694,7 @@ func getRecordHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, rowData)
 }
 
-// --- *** NEW: Handler for Updating Records *** ---
-
 // updateRecordHandler handles updating fields of an existing record
-
 func updateRecordHandler(c *gin.Context) {
 	// 1. Get UserID, DBName, TableName, RecordID
 	userID := c.MustGet("userID").(int64)
@@ -925,6 +922,89 @@ func updateRecordHandler(c *gin.Context) {
 		"record_id":     recordID,
 		"rows_affected": rowsAffected,
 	})
+}
+
+// --- *** NEW: Handler for Deleting Records *** ---
+
+// deleteRecordHandler handles deleting a specific record by ID
+func deleteRecordHandler(c *gin.Context) {
+	// 1. Get UserID, DBName, TableName, RecordID
+	userID := c.MustGet("userID").(int64)
+	dbName := c.Param("db_name")
+	tableName := c.Param("table_name")
+	recordIDStr := c.Param("record_id")
+
+	if !isValidName(dbName) || !isValidName(tableName) {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid database or table name in URL path."})
+		return
+	}
+	recordID, err := strconv.ParseInt(recordIDStr, 10, 64)
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid record ID format. Must be an integer."})
+		return
+	}
+
+	// 2. Look up the database file path
+	var dbFilePath string
+	lookupSQL := `SELECT file_path FROM databases WHERE user_id = ? AND db_name = ? LIMIT 1`
+	err = metaDB.QueryRowContext(c.Request.Context(), lookupSQL, userID, dbName).Scan(&dbFilePath)
+	if err != nil { // Handle DB lookup errors (404, 500)
+		if errors.Is(err, sql.ErrNoRows) {
+			c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "Database not found or not registered."})
+			return
+		}
+		log.Printf("Delete Record: Error looking up db path for UserID %d, DB %s: %v", userID, dbName, err)
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve database information."})
+		return
+	}
+
+	// 3. Connect to the specific user's database file
+	userDB, err := sql.Open("sqlite3", dbFilePath+"?_foreign_keys=on")
+	if err != nil { // Handle DB connection errors (500)
+		log.Printf("Delete Record: Failed to open user DB %s for UserID %d: %v", dbFilePath, userID, err)
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to access database storage."})
+		return
+	}
+	defer userDB.Close()
+	if err = userDB.PingContext(c.Request.Context()); err != nil {
+		log.Printf("Delete Record: Failed to ping user DB %s for UserID %d: %v", dbFilePath, userID, err)
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to connect to database storage."})
+		return
+	}
+
+	// 4. Construct the DELETE SQL statement
+	deleteSQL := fmt.Sprintf("DELETE FROM %s WHERE id = ?", tableName) // tableName validated
+	log.Printf("Executing Record Delete SQL for UserID %d, DB '%s', Table '%s', ID %d: %s", userID, dbName, tableName, recordID, deleteSQL)
+
+	// 5. Execute the DELETE statement
+	result, err := userDB.ExecContext(c.Request.Context(), deleteSQL, recordID)
+	if err != nil {
+		// Handle potential errors (e.g., connection issue, maybe syntax if table name was weird despite validation)
+		// Note: SQLite generally doesn't error on DELETE if table/row doesn't exist, it just affects 0 rows.
+		log.Printf("Failed to execute DELETE statement for UserID %d, ID %d: %v", userID, recordID, err)
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete record."})
+		return
+	}
+
+	// 6. Check if any rows were actually affected
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		log.Printf("Failed to get RowsAffected for delete UserID %d, ID %d: %v", userID, recordID, err)
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to confirm delete status."})
+		return
+	}
+
+	if rowsAffected == 0 {
+		// This means the WHERE id = ? clause matched 0 rows
+		log.Printf("Delete attempted, but record not found for UserID %d, ID %d", userID, recordID)
+		c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "Record not found for deletion."})
+		return
+	}
+
+	log.Printf("Successfully deleted record ID %d from DB '%s', Table '%s' for UserID %d", recordID, dbName, tableName, userID)
+
+	// 7. Return success response (No Content)
+	c.Status(http.StatusNoContent) // 204 No Content is standard for successful DELETE with no body
 }
 
 // --- *** END NEW *** ---

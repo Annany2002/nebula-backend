@@ -72,14 +72,12 @@ func main() {
 		apiRoutes.POST("/databases/:db_name/tables/:table_name/records", createRecordHandler)
 		apiRoutes.GET("/databases/:db_name/tables/:table_name/records", listRecordsHandler)
 		apiRoutes.GET("/databases/:db_name/tables/:table_name/records/:record_id", getRecordHandler)
-
-		// --- *** NEW: Register Update Record route *** ---
-		// Handler is in db_handlers.go
 		apiRoutes.PUT("/databases/:db_name/tables/:table_name/records/:record_id", updateRecordHandler)
-		// --- *** END NEW *** ---
 
-		// Delete route will go here next:
-		// DELETE  /databases/:db_name/tables/:table_name/records/:record_id
+		// --- *** NEW: Register Delete Record route *** ---
+		// Handler is in db_handlers.go
+		apiRoutes.DELETE("/databases/:db_name/tables/:table_name/records/:record_id", deleteRecordHandler)
+		// --- *** END NEW *** ---
 
 	}
 
