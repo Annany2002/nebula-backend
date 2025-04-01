@@ -64,20 +64,18 @@ func main() {
 			})
 		})
 
-		// Handler is in db_handlers.go
+		// Database & Schema Management
 		apiRoutes.POST("/databases", createDatabaseHandler)
-
-		// Handler is in db_handlers.go
-		// :db_name is a URL path parameter
 		apiRoutes.POST("/databases/:db_name/schema", createSchemaHandler)
-
-		// --- *** NEW: Register Create Record route *** ---
-		// Handler is in db_handlers.go
+		// Record CRUD
 		apiRoutes.POST("/databases/:db_name/tables/:table_name/records", createRecordHandler)
+
+		// --- *** NEW: Register List Records route *** ---
+		// Handler is in db_handlers.go
+		apiRoutes.GET("/databases/:db_name/tables/:table_name/records", listRecordsHandler)
 		// --- *** END NEW *** ---
 
-		// Read routes will go here next:
-		// GET     /databases/:db_name/tables/:table_name/records
+		// Read single record route will go here next:
 		// GET     /databases/:db_name/tables/:table_name/records/:record_id
 		// ... Update/Delete ...
 

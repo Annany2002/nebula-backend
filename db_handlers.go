@@ -217,8 +217,6 @@ func createSchemaHandler(c *gin.Context) {
 	})
 }
 
-// --- *** NEW: Handler for Creating Records *** ---
-
 // createRecordHandler handles inserting a new record into a user-defined table
 func createRecordHandler(c *gin.Context) {
 	// 1. Get UserID, DBName, TableName
@@ -444,6 +442,119 @@ func createRecordHandler(c *gin.Context) {
 		"message":   "Record created successfully",
 		"record_id": lastID,
 	})
+}
+
+// --- *** NEW: Handler for Listing Records *** ---
+
+// listRecordsHandler handles retrieving all records from a user-defined table
+func listRecordsHandler(c *gin.Context) {
+	// 1. Get UserID, DBName, TableName
+	userID := c.MustGet("userID").(int64)
+	dbName := c.Param("db_name")
+	tableName := c.Param("table_name")
+
+	if !isValidName(dbName) || !isValidName(tableName) {
+		log.Printf("List Records: Invalid DB/Table name in path for UserID %d: DB '%s', Table '%s'", userID, dbName, tableName)
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid database or table name in URL path."})
+		return
+	}
+
+	// 2. Look up the database file path
+	var dbFilePath string
+	lookupSQL := `SELECT file_path FROM databases WHERE user_id = ? AND db_name = ? LIMIT 1`
+	err := metaDB.QueryRowContext(c.Request.Context(), lookupSQL, userID, dbName).Scan(&dbFilePath)
+	if err != nil { // Handle DB lookup errors (404, 500)
+		if errors.Is(err, sql.ErrNoRows) {
+			c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "Database not found or not registered."})
+			return
+		}
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve database information."})
+		return
+	}
+
+	// 3. Connect to the specific user's database file
+	userDB, err := sql.Open("sqlite3", dbFilePath+"?_foreign_keys=on")
+	if err != nil { // Handle DB connection errors (500)
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to access database storage."})
+		return
+	}
+	defer userDB.Close()
+	if err = userDB.PingContext(c.Request.Context()); err != nil {
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to connect to database storage."})
+		return
+	}
+
+	// 4. Construct the SELECT * SQL statement
+	// Using SELECT * is simple for MVP. In production, specifying columns is better.
+	selectSQL := fmt.Sprintf("SELECT * FROM %s;", tableName) // tableName is validated
+	log.Printf("Executing Record List SQL for UserID %d, DB '%s', Table '%s': %s", userID, dbName, tableName, selectSQL)
+
+	// 5. Execute the SELECT query
+	rows, err := userDB.QueryContext(c.Request.Context(), selectSQL)
+	if err != nil {
+		// Handle potential errors: table not found most likely
+		log.Printf("Failed to execute SELECT query for UserID %d, DB '%s', Table '%s': %v", userID, dbName, tableName, err)
+		if strings.Contains(err.Error(), "no such table") {
+			c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("Table '%s' not found.", tableName)})
+			return
+		}
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to query records."})
+		return
+	}
+	defer rows.Close()
+
+	// 6. Process the results into a slice of maps
+	columns, err := rows.Columns()
+	if err != nil {
+		log.Printf("Failed to get columns for UserID %d, DB '%s', Table '%s': %v", userID, dbName, tableName, err)
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to process query results."})
+		return
+	}
+	numColumns := len(columns)
+	results := make([]map[string]interface{}, 0) // Initialize empty slice
+
+	for rows.Next() {
+		scanArgs := make([]interface{}, numColumns) // Slice of pointers
+		values := make([]interface{}, numColumns)   // Slice to hold actual values
+
+		// Point scanArgs pointers to the elements of the values slice
+		for i := range values {
+			scanArgs[i] = &values[i]
+		}
+
+		// Scan the row into the pointers
+		if err := rows.Scan(scanArgs...); err != nil {
+			log.Printf("Failed to scan row for UserID %d, DB '%s', Table '%s': %v", userID, dbName, tableName, err)
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to read record data."})
+			return
+		}
+
+		// Create a map for the current row
+		rowData := make(map[string]interface{})
+		for i, colName := range columns {
+			// Handle potential []byte values (common for TEXT, BLOB)
+			// and convert them to string for JSON compatibility
+			rawValue := values[i]
+			if byteSlice, ok := rawValue.([]byte); ok {
+				rowData[colName] = string(byteSlice) // Convert []byte to string
+			} else {
+				rowData[colName] = rawValue // Use the value directly for other types (int64, float64, nil)
+			}
+		}
+		results = append(results, rowData)
+	} // End rows.Next() loop
+
+	// Check for errors that occurred during iteration
+	if err = rows.Err(); err != nil {
+		log.Printf("Error during row iteration for UserID %d, DB '%s', Table '%s': %v", userID, dbName, tableName, err)
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to process all records."})
+		return
+	}
+
+	log.Printf("Successfully retrieved %d records from DB '%s', Table '%s' for UserID %d", len(results), dbName, tableName, userID)
+
+	// 7. Return the results
+	c.JSON(http.StatusOK, results) // Return 200 OK with the slice of records (can be empty)
 }
 
 // --- *** END NEW *** ---
