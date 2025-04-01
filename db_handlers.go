@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -102,8 +103,6 @@ func createDatabaseHandler(c *gin.Context) {
 		"file_path": dbFilePath, // Optional: maybe don't expose exact path? For MVP it's ok.
 	})
 }
-
-// --- *** NEW: Handler for Schema Creation *** ---
 
 // createSchemaHandler handles requests to define a table schema within a user's database
 func createSchemaHandler(c *gin.Context) {
@@ -215,6 +214,235 @@ func createSchemaHandler(c *gin.Context) {
 		"message":    fmt.Sprintf("Table '%s' created or already exists.", req.TableName),
 		"db_name":    dbName,
 		"table_name": req.TableName,
+	})
+}
+
+// --- *** NEW: Handler for Creating Records *** ---
+
+// createRecordHandler handles inserting a new record into a user-defined table
+func createRecordHandler(c *gin.Context) {
+	// 1. Get UserID, DBName, TableName
+	userID := c.MustGet("userID").(int64)
+	dbName := c.Param("db_name")
+	tableName := c.Param("table_name")
+
+	if !isValidName(dbName) || !isValidName(tableName) {
+		log.Printf("Invalid DB/Table name in path for UserID %d: DB '%s', Table '%s'", userID, dbName, tableName)
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid database or table name in URL path."})
+		return
+	}
+
+	// 2. Look up the database file path
+	var dbFilePath string
+	lookupSQL := `SELECT file_path FROM databases WHERE user_id = ? AND db_name = ? LIMIT 1`
+	err := metaDB.QueryRowContext(c.Request.Context(), lookupSQL, userID, dbName).Scan(&dbFilePath)
+	if err != nil { // Handle DB lookup errors (404, 500)
+		if errors.Is(err, sql.ErrNoRows) {
+			log.Printf("Record creation attempt failed for UserID %d, DB '%s': database not found/registered", userID, dbName)
+			c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "Database not found or not registered for your account."})
+			return
+		}
+		log.Printf("Error looking up database path for UserID %d, DB '%s': %v", userID, dbName, err)
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve database information."})
+		return
+	}
+
+	// 3. Connect to the specific user's database file
+	userDB, err := sql.Open("sqlite3", dbFilePath+"?_foreign_keys=on")
+	if err != nil { // Handle DB connection errors (500)
+		log.Printf("Failed to open user DB file '%s' for UserID %d: %v", dbFilePath, userID, err)
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to access database storage."})
+		return
+	}
+	defer userDB.Close()
+	if err = userDB.PingContext(c.Request.Context()); err != nil {
+		log.Printf("Failed to ping user DB '%s' for UserID %d: %v", dbFilePath, userID, err)
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to connect to database storage."})
+		return
+	}
+
+	// *** NEW: 4. Fetch Table Schema using PRAGMA ***
+	pragmaSQL := fmt.Sprintf("PRAGMA table_info(%s);", tableName) // Safe as tableName is validated
+	rows, err := userDB.QueryContext(c.Request.Context(), pragmaSQL)
+	if err != nil {
+		log.Printf("Failed to execute PRAGMA table_info for UserID %d, DB '%s', Table '%s': %v", userID, dbName, tableName, err)
+		// This might indicate the table doesn't exist, treat as 404 or 500
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve table schema."})
+		return
+	}
+	defer rows.Close()
+
+	columnTypes := make(map[string]string) // Map column name -> uppercase SQL type
+	foundColumns := false
+	for rows.Next() {
+		foundColumns = true
+		var cid int                  // Column ID
+		var name string              // Column name
+		var sqlType string           // Column type (e.g., "INTEGER", "TEXT")
+		var notnull int              // Non-null constraint (0 or 1)
+		var dfltValue sql.NullString // Default value
+		var pk int                   // Primary key flag (0 or 1)
+
+		if err := rows.Scan(&cid, &name, &sqlType, &notnull, &dfltValue, &pk); err != nil {
+			log.Printf("Failed to scan PRAGMA table_info row for UserID %d, DB '%s', Table '%s': %v", userID, dbName, tableName, err)
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to parse table schema."})
+			return
+		}
+		// Store type in uppercase for consistent checks
+		columnTypes[strings.ToLower(name)] = strings.ToUpper(sqlType) // Use lowercase key for map lookup consistency
+	}
+	if err = rows.Err(); err != nil { // Check for errors during iteration
+		log.Printf("Error iterating PRAGMA table_info results for UserID %d, DB '%s', Table '%s': %v", userID, dbName, tableName, err)
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to read table schema."})
+		return
+	}
+	if !foundColumns {
+		// PRAGMA returned no rows, likely means table doesn't exist
+		log.Printf("PRAGMA table_info returned no results for UserID %d, DB '%s', Table '%s'. Assuming table not found.", userID, dbName, tableName)
+		c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("Table '%s' not found.", tableName)})
+		return
+	}
+
+	// 5. Bind arbitrary JSON request body
+	var recordData map[string]interface{}
+	if err := c.ShouldBindJSON(&recordData); err != nil { // Handle binding errors (400)
+		log.Printf("Record creation binding error for UserID %d, DB '%s', Table '%s': %v", userID, dbName, tableName, err)
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON request body: " + err.Error()})
+		return
+	}
+	if len(recordData) == 0 {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Request body cannot be empty."})
+		return
+	}
+
+	// 6. Prepare for dynamic SQL construction & Validate Input Data Types
+	var columns []string
+	var placeholders []string
+	var values []interface{}
+
+	for key, val := range recordData {
+		lowerKey := strings.ToLower(key) // Use lowercase for lookup consistency
+
+		// A. Validate column name is valid format and not 'id'
+		if !isValidName(key) || lowerKey == "id" {
+			log.Printf("Record creation: Ignored invalid/disallowed key '%s' for UserID %d, DB '%s', Table '%s'", key, userID, dbName, tableName)
+			continue // Skip this key-value pair
+		}
+
+		// B. Check if column exists in the schema and get expected type
+		expectedType, exists := columnTypes[lowerKey]
+		if !exists {
+			log.Printf("Record creation: Column '%s' not found in table '%s' schema for UserID %d.", key, tableName, userID)
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Column '%s' does not exist in table '%s'.", key, tableName)})
+			return
+		}
+
+		// C. *** NEW: Validate Go type against expected SQL type ***
+		isValidValue := false
+		switch expectedType {
+		case "INTEGER":
+			// JSON numbers are float64 by default. Check if it's a whole number.
+			if vFloat, ok := val.(float64); ok {
+				if math.Floor(vFloat) == vFloat {
+					isValidValue = true
+					// Optional: Convert to int64 for insertion if preferred, though driver handles float64 for INTEGER
+					// values = append(values, int64(vFloat))
+					// continue // Skip default append below if converting type
+				}
+			} else if _, ok := val.(int); ok { // Handle if JSON lib somehow gives int
+				isValidValue = true
+			} else if _, ok := val.(int64); ok { // Handle if JSON lib somehow gives int64
+				isValidValue = true
+			}
+		case "REAL":
+			// Accept float64 or potentially int/int64 from JSON
+			if _, ok := val.(float64); ok {
+				isValidValue = true
+			} else if _, ok := val.(int); ok {
+				isValidValue = true
+			} else if _, ok := val.(int64); ok {
+				isValidValue = true
+			}
+		case "TEXT":
+			if _, ok := val.(string); ok {
+				isValidValue = true
+			}
+		case "BLOB":
+			// For MVP, we might just accept strings (assuming base64) or nil
+			// Or skip validation and let SQLite handle it. For now, let's be lenient.
+			// If strictness is needed, check for string and maybe try base64 decoding.
+			isValidValue = true // Lenient for now
+		case "BOOLEAN": // If we simulated BOOLEAN as INTEGER
+			if _, ok := val.(bool); ok {
+				isValidValue = true // Driver usually handles bool to 0/1
+			} else if vFloat, ok := val.(float64); ok && (vFloat == 0 || vFloat == 1) {
+				isValidValue = true // Allow 0 or 1 from JSON numbers
+			}
+
+		default:
+			// Should not happen if PRAGMA worked correctly
+			log.Printf("WARNING: Unknown SQL type '%s' encountered for column '%s' during type validation.", expectedType, key)
+			isValidValue = true // Be lenient with unknown types? Or return error?
+		}
+
+		if !isValidValue {
+			log.Printf("Record creation: Type mismatch for column '%s' (expected %s) for UserID %d. Received type %T.", key, expectedType, userID, val)
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid data type for column '%s'. Expected %s.", key, expectedType)})
+			return
+		}
+
+		// D. If all validations pass, add to lists for SQL construction
+		columns = append(columns, key) // Use original key casing for SQL clarity if desired, or lowerKey
+		placeholders = append(placeholders, "?")
+		values = append(values, val)
+	} // End loop over recordData
+
+	if len(columns) == 0 { // Check if any valid columns were actually provided
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "No valid or recognized columns provided in request body."})
+		return
+	}
+
+	// 7. Construct the dynamic INSERT SQL statement
+	insertSQL := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)",
+		tableName,                        // Validated
+		strings.Join(columns, ", "),      // Built from validated & existing keys
+		strings.Join(placeholders, ", "), // Placeholders match `values` slice
+	)
+	log.Printf("Executing Record Insert SQL for UserID %d, DB '%s', Table '%s': %s", userID, dbName, tableName, insertSQL)
+
+	// 8. Execute the INSERT statement
+	result, err := userDB.ExecContext(c.Request.Context(), insertSQL, values...)
+	if err != nil { // Handle execution errors (500, 409, etc.)
+		log.Printf("Failed to execute INSERT statement for UserID %d, DB '%s', Table '%s': %v", userID, dbName, tableName, err)
+		// Simplified error handling, as pre-validation should catch many issues
+		errMsg := "Failed to insert record."
+		var sqliteErr sqlite3.Error
+		if errors.As(err, &sqliteErr) && sqliteErr.Code == sqlite3.ErrConstraint {
+			errMsg = "Database constraint violation (e.g., UNIQUE constraint failed)."
+			c.AbortWithStatusJSON(http.StatusConflict, gin.H{"error": errMsg})
+			return
+		}
+		// Add back specific checks if needed, but rely more on pre-validation now
+		// if strings.Contains(err.Error(), "datatype mismatch") { ... } // Less likely now
+
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": errMsg})
+		return
+	}
+
+	// 9. Get the ID of the newly inserted record
+	lastID, err := result.LastInsertId()
+	if err != nil { // Handle failure to get ID (500 or partial success)
+		log.Printf("Failed to get LastInsertId for UserID %d, DB '%s', Table '%s' (but insert likely succeeded): %v", userID, dbName, tableName, err)
+		c.JSON(http.StatusCreated, gin.H{"message": "Record created successfully (failed to retrieve ID)."})
+		return
+	}
+
+	log.Printf("Successfully inserted record with ID %d into DB '%s', Table '%s' for UserID %d", lastID, dbName, tableName, userID)
+
+	// 10. Return success response
+	c.JSON(http.StatusCreated, gin.H{
+		"message":   "Record created successfully",
+		"record_id": lastID,
 	})
 }
 
