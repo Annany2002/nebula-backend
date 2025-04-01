@@ -30,6 +30,22 @@ type LoginRequest struct {
 	Password string `json:"password" binding:"required"`
 }
 
+// *** NEW: Structs for Schema Definition ***
+
+// ColumnDefinition represents a single column in a table schema request
+type ColumnDefinition struct {
+	Name string `json:"name" binding:"required"`
+	Type string `json:"type" binding:"required"` // e.g., "TEXT", "INTEGER", "REAL", "BLOB"
+}
+
+// CreateSchemaRequest defines the structure for the schema creation request body
+type CreateSchemaRequest struct {
+	TableName string             `json:"table_name" binding:"required"`
+	Columns   []ColumnDefinition `json:"columns" binding:"required,min=1,dive"` // 'dive' validates elements within slice/map
+}
+
+// *** END NEW ***
+
 // --- JWT Claims ---
 
 // CustomClaims includes standard claims and our custom userID claim
@@ -38,7 +54,7 @@ type CustomClaims struct {
 	jwt.RegisteredClaims
 }
 
-// *** NEW: Request struct for creating a database ***
+// Request struct for creating a database ***
 type CreateDatabaseRequest struct {
 	DBName string `json:"db_name" binding:"required"`
 }
