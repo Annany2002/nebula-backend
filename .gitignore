@@ -1,0 +1,46 @@
+# Compiled Go binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Project executable binary (adjust the name if you build with -o flag)
+go-baas-mvp
+
+# Test binary built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+coverage.*
+profile.out
+
+# Dependency directories (Go modules normally keeps these elsewhere, but good practice)
+# Add '/vendor/' if you run 'go mod vendor'.
+/vendor/
+
+# IDE and editor configuration files
+/.vscode/
+/.idea/
+*.iml
+*~
+*.swp
+*.swo
+*.bak
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Runtime data files - IMPORTANT for this project
+/data/
+*.db
+*.db-journal # SQLite journal files
+
+# Environment variable files (often contain secrets)
+.env
+*.env
+
+# Log files
+*.log
