@@ -556,8 +556,6 @@ func listRecordsHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, results) // Return 200 OK with the slice of records (can be empty)
 }
 
-// --- *** NEW: Handler for Getting a Single Record *** ---
-
 // getRecordHandler handles retrieving a single record by ID
 func getRecordHandler(c *gin.Context) {
 	// 1. Get UserID, DBName, TableName, RecordID
@@ -694,6 +692,239 @@ func getRecordHandler(c *gin.Context) {
 
 	// 7. Return the single record
 	c.JSON(http.StatusOK, rowData)
+}
+
+// --- *** NEW: Handler for Updating Records *** ---
+
+// updateRecordHandler handles updating fields of an existing record
+
+func updateRecordHandler(c *gin.Context) {
+	// 1. Get UserID, DBName, TableName, RecordID
+	userID := c.MustGet("userID").(int64)
+	dbName := c.Param("db_name")
+	tableName := c.Param("table_name")
+	recordIDStr := c.Param("record_id")
+
+	if !isValidName(dbName) || !isValidName(tableName) {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid database or table name in URL path."})
+		return
+	}
+	recordID, err := strconv.ParseInt(recordIDStr, 10, 64)
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid record ID format. Must be an integer."})
+		return
+	}
+
+	// 2. Look up the database file path
+	var dbFilePath string
+	lookupSQL := `SELECT file_path FROM databases WHERE user_id = ? AND db_name = ? LIMIT 1`
+	err = metaDB.QueryRowContext(c.Request.Context(), lookupSQL, userID, dbName).Scan(&dbFilePath)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "Database not found or not registered."})
+			return
+		}
+		log.Printf("Update Record: Error looking up db path for UserID %d, DB %s: %v", userID, dbName, err)
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve database information."})
+		return
+	}
+
+	// 3. Connect to the specific user's database file
+	userDB, err := sql.Open("sqlite3", dbFilePath+"?_foreign_keys=on")
+	if err != nil {
+		log.Printf("Update Record: Failed to open user DB %s for UserID %d: %v", dbFilePath, userID, err)
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to access database storage."})
+		return
+	}
+	defer userDB.Close()
+	if err = userDB.PingContext(c.Request.Context()); err != nil {
+		log.Printf("Update Record: Failed to ping user DB %s for UserID %d: %v", dbFilePath, userID, err)
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to connect to database storage."})
+		return
+	}
+
+	// 4. Fetch Table Schema for validation
+	pragmaSQL := fmt.Sprintf("PRAGMA table_info(%s);", tableName) // Safe as tableName is validated
+	rows, err := userDB.QueryContext(c.Request.Context(), pragmaSQL)
+	if err != nil {
+		log.Printf("Update Record: Failed PRAGMA for UserID %d, DB %s, Table %s: %v", userID, dbName, tableName, err)
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve table schema."})
+		return
+	}
+	defer rows.Close()
+
+	columnTypes := make(map[string]string)
+	foundColumns := false
+	for rows.Next() {
+		foundColumns = true
+		var cid int
+		var name string
+		var sqlType string
+		var notnull int
+		var dfltValue sql.NullString
+		var pk int
+		if err := rows.Scan(&cid, &name, &sqlType, &notnull, &dfltValue, &pk); err != nil {
+			log.Printf("Update Record: Failed scanning PRAGMA for UserID %d, DB %s, Table %s: %v", userID, dbName, tableName, err)
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to parse table schema."})
+			return
+		}
+		columnTypes[strings.ToLower(name)] = strings.ToUpper(sqlType)
+	}
+	if err = rows.Err(); err != nil {
+		log.Printf("Update Record: Error iterating PRAGMA for UserID %d, DB %s, Table %s: %v", userID, dbName, tableName, err)
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to read table schema."})
+		return
+	}
+	if !foundColumns {
+		c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("Table '%s' not found.", tableName)})
+		return
+	}
+
+	// 5. Bind JSON request body containing fields to update
+	var updateData map[string]interface{}
+	if err := c.ShouldBindJSON(&updateData); err != nil {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON request body: " + err.Error()})
+		return
+	}
+	if len(updateData) == 0 {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Request body cannot be empty for update."})
+		return
+	}
+
+	// 6. Prepare for dynamic UPDATE SQL & Validate Input Data Types
+	var setClauses []string
+	var values []interface{}
+
+	for key, val := range updateData {
+		lowerKey := strings.ToLower(key)
+
+		// A. Validate column name is valid format and not 'id'
+		if !isValidName(key) || lowerKey == "id" {
+			log.Printf("Update Record: Ignored invalid/disallowed key '%s' for UserID %d, ID %d", key, userID, recordID)
+			continue // Skip invalid/disallowed keys
+		}
+
+		// B. Check if column exists in the schema
+		expectedType, exists := columnTypes[lowerKey]
+		if !exists {
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Column '%s' does not exist in table '%s'.", key, tableName)})
+			return
+		}
+
+		// C. CORRECTED: Validate Go type against expected SQL type using type switch
+		isValidValue := false
+		switch expectedType {
+		case "INTEGER":
+			switch v := val.(type) {
+			case float64:
+				if math.Floor(v) == v {
+					isValidValue = true
+				} // Check if float represents a whole number
+			case int, int64: // Accept int or int64 directly
+				isValidValue = true
+			case nil: // Allow null values
+				isValidValue = true
+			}
+		case "REAL":
+			switch val.(type) {
+			case float64, int, int64: // Accept float or int types
+				isValidValue = true
+			case nil:
+				isValidValue = true
+			}
+		case "TEXT":
+			switch val.(type) {
+			case string:
+				isValidValue = true
+			case nil:
+				isValidValue = true
+			}
+		case "BLOB":
+			// Lenient: accept string (for base64 maybe) or nil
+			switch val.(type) {
+			case string, nil:
+				isValidValue = true
+				// Add case []byte if needed, though JSON binding won't produce this directly
+			}
+		case "BOOLEAN": // If simulated
+			switch v := val.(type) {
+			case bool:
+				isValidValue = true
+			case float64: // Handles 0.0 or 1.0 from JSON
+				if v == 0 || v == 1 {
+					isValidValue = true
+				}
+			case nil:
+				isValidValue = true
+			}
+		default:
+			log.Printf("Update Record WARNING: Unknown expected SQL type '%s' for column '%s'. Allowing value.", expectedType, key)
+			isValidValue = true // Be lenient with unknown types from PRAGMA
+		}
+
+		if !isValidValue {
+			// Log the received value and type for better debugging
+			log.Printf("Update Record: Type mismatch for column '%s' (expected compatible with %s) for UserID %d. Received type %T, value %v.", key, expectedType, userID, val, val)
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid data type for column '%s'. Expected compatible with %s.", key, expectedType)})
+			return
+		}
+
+		// D. If valid, add to lists for SQL construction
+		setClauses = append(setClauses, fmt.Sprintf("%s = ?", key)) // Using original key name for the SET clause
+		values = append(values, val)
+	} // End loop
+
+	if len(setClauses) == 0 {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "No valid fields provided for update."})
+		return
+	}
+
+	// IMPORTANT: Append the recordID for the WHERE clause *after* the SET values
+	values = append(values, recordID)
+
+	// 7. Construct the dynamic UPDATE SQL statement
+	updateSQL := fmt.Sprintf("UPDATE %s SET %s WHERE id = ?",
+		tableName,                      // Validated
+		strings.Join(setClauses, ", "), // Built from validated fields
+	)
+	log.Printf("Executing Record Update SQL for UserID %d, ID %d: %s", userID, recordID, updateSQL)
+
+	// 8. Execute the UPDATE statement
+	result, err := userDB.ExecContext(c.Request.Context(), updateSQL, values...)
+	if err != nil { // Handle execution errors (500, 409)
+		log.Printf("Failed to execute UPDATE statement for UserID %d, ID %d: %v", userID, recordID, err)
+		errMsg := "Failed to update record."
+		var sqliteErr sqlite3.Error
+		if errors.As(err, &sqliteErr) && sqliteErr.Code == sqlite3.ErrConstraint {
+			errMsg = "Database constraint violation during update (e.g., UNIQUE constraint failed)."
+			c.AbortWithStatusJSON(http.StatusConflict, gin.H{"error": errMsg})
+			return
+		}
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": errMsg})
+		return
+	}
+
+	// 9. Check if any rows were actually affected
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		log.Printf("Failed to get RowsAffected for update UserID %d, ID %d: %v", userID, recordID, err)
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to confirm update status."})
+		return
+	}
+	if rowsAffected == 0 {
+		log.Printf("Update attempted, but record not found for UserID %d, ID %d", userID, recordID)
+		c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "Record not found for update."})
+		return
+	}
+
+	log.Printf("Successfully updated record ID %d in DB '%s', Table '%s' for UserID %d", recordID, dbName, tableName, userID)
+
+	// 10. Return success response
+	c.JSON(http.StatusOK, gin.H{
+		"message":       "Record updated successfully",
+		"record_id":     recordID,
+		"rows_affected": rowsAffected,
+	})
 }
 
 // --- *** END NEW *** ---

@@ -71,15 +71,15 @@ func main() {
 		// Record CRUD
 		apiRoutes.POST("/databases/:db_name/tables/:table_name/records", createRecordHandler)
 		apiRoutes.GET("/databases/:db_name/tables/:table_name/records", listRecordsHandler)
-
-		// --- *** NEW: Register Get Single Record route *** ---
-		// Handler is in db_handlers.go
 		apiRoutes.GET("/databases/:db_name/tables/:table_name/records/:record_id", getRecordHandler)
+
+		// --- *** NEW: Register Update Record route *** ---
+		// Handler is in db_handlers.go
+		apiRoutes.PUT("/databases/:db_name/tables/:table_name/records/:record_id", updateRecordHandler)
 		// --- *** END NEW *** ---
 
-		// Update route will go here next:
-		// PUT     /databases/:db_name/tables/:table_name/records/:record_id
-		// ... Delete ...
+		// Delete route will go here next:
+		// DELETE  /databases/:db_name/tables/:table_name/records/:record_id
 
 	}
 
