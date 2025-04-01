@@ -65,7 +65,7 @@ nebula-backend/
 1.  **Clone the repository (Example):**
 
     ```bash
-    git clone [https://github.com/Annany2002/nebula-backend.git](https://www.google.com/search?q=https://github.com/Annany2002/nebula-backend.git)
+    git clone https://github.com/Annany2002/nebula-backend.git
     cd nebula-backend
     ```
 
