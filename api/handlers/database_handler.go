@@ -178,8 +178,6 @@ func (h *DatabaseHandler) CreateSchema(c *gin.Context) {
 	})
 }
 
-// --- *** NEW: List Databases Handler *** ---
-
 // ListDatabases handles requests to list registered databases for the user.
 func (h *DatabaseHandler) ListDatabases(c *gin.Context) {
 	userID := c.MustGet("userID").(int64) // From AuthMiddleware
@@ -195,10 +193,6 @@ func (h *DatabaseHandler) ListDatabases(c *gin.Context) {
 	log.Printf("Handler: Retrieved %d database(s) for UserID %d", len(dbNames), userID)
 	c.JSON(http.StatusOK, gin.H{"databases": dbNames})
 }
-
-// --- *** END NEW *** ---
-
-// --- *** NEW: List Tables Handler *** ---
 
 // ListTables handles requests to list tables within a specific user database.
 func (h *DatabaseHandler) ListTables(c *gin.Context) {
@@ -244,6 +238,123 @@ func (h *DatabaseHandler) ListTables(c *gin.Context) {
 
 	log.Printf("Handler: Retrieved %d table(s) for UserID %d, DB %s", len(tableNames), userID, dbName)
 	c.JSON(http.StatusOK, gin.H{"tables": tableNames})
+}
+
+// --- *** NEW: Delete Table Handler *** ---
+
+// DeleteTable handles requests to drop a table within a specific user database.
+func (h *DatabaseHandler) DeleteTable(c *gin.Context) {
+	userID := c.MustGet("userID").(int64)
+	dbName := c.Param("db_name")
+	tableName := c.Param("table_name") // Get table name from path
+
+	// Validate both names
+	if !core.IsValidIdentifier(dbName) || !core.IsValidIdentifier(tableName) {
+		err := errors.New("invalid database or table name in URL path")
+		_ = c.Error(err)
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()}) // Temp direct response
+		return
+	}
+
+	// Find path, connect to user DB
+	dbFilePath, err := storage.FindDatabasePath(c.Request.Context(), h.MetaDB, userID, dbName)
+	if err != nil { /* ... handle FindDatabasePath errors (404, 500) ... */
+		_ = c.Error(err)
+		if errors.Is(err, storage.ErrDatabaseNotFound) {
+			c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "Database not found or not registered."})
+		} else {
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve database information."})
+		}
+		return
+	}
+	userDB, err := storage.ConnectUserDB(c.Request.Context(), dbFilePath)
+	if err != nil { /* ... handle ConnectUserDB error (500) ... */
+		_ = c.Error(err)
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to access database storage."})
+		return
+	}
+	defer userDB.Close()
+
+	// Execute DropTable via storage function
+	log.Printf("Handler: Attempting to drop table '%s' in DB '%s' for UserID %d", tableName, dbName, userID)
+	err = storage.DropTable(c.Request.Context(), userDB, tableName)
+	if err != nil {
+		log.Printf("Handler: Error dropping table '%s' for UserID %d: %v", tableName, userID, err)
+		_ = c.Error(err)
+		// Let middleware handle (likely 500)
+		return
+	}
+
+	log.Printf("Handler: Successfully dropped table '%s' in DB '%s' for UserID %d", tableName, dbName, userID)
+	c.Status(http.StatusNoContent) // Return 204 No Content on success
+}
+
+// --- *** END NEW --
+
+// --- *** NEW: Delete Database Handler *** ---
+
+// DeleteDatabase handles requests to delete a database registration and its file.
+func (h *DatabaseHandler) DeleteDatabase(c *gin.Context) {
+	userID := c.MustGet("userID").(int64)
+	dbName := c.Param("db_name")
+
+	if !core.IsValidIdentifier(dbName) {
+		err := errors.New("invalid database name in URL path")
+		_ = c.Error(err)
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()}) // Temp direct response
+		return
+	}
+
+	// 1. Find the file path *before* deleting the registration
+	dbFilePath, err := storage.FindDatabasePath(c.Request.Context(), h.MetaDB, userID, dbName)
+	if err != nil {
+		_ = c.Error(err)
+		if errors.Is(err, storage.ErrDatabaseNotFound) {
+			c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "Database not found or not registered."})
+		} else {
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve database information."})
+		}
+		return
+	}
+
+	// 2. Delete the registration entry from metadata.db
+	log.Printf("Handler: Attempting to delete registration for DB '%s', UserID %d", dbName, userID)
+	err = storage.DeleteDatabaseRegistration(c.Request.Context(), h.MetaDB, userID, dbName)
+	if err != nil {
+		_ = c.Error(err)
+		// ErrDatabaseNotFound here means it was already gone somehow, treat as success? Or specific conflict?
+		// Let's treat not found as success (idempotent), other errors as 500.
+		if !errors.Is(err, storage.ErrDatabaseNotFound) {
+			log.Printf("Handler: Failed to delete DB registration for UserID %d, DB '%s': %v", userID, dbName, err)
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete database registration."})
+			return
+		}
+		// If ErrDatabaseNotFound, log it but proceed to file deletion attempt anyway
+		log.Printf("Handler: DB registration for UserID %d, DB '%s' was already deleted or not found, proceeding to file check.", userID, dbName)
+	}
+
+	// 3. Attempt to delete the associated database file
+	// This is best-effort. Log errors but return success if registration was deleted.
+	log.Printf("Handler: Attempting to delete database file: %s", dbFilePath)
+	err = os.Remove(dbFilePath)
+	if err != nil {
+		// Log error but don't fail the request if registration was deleted
+		// Ignore "not found" errors for the file itself (idempotency)
+		if !errors.Is(err, os.ErrNotExist) {
+			log.Printf("Handler: WARN - Failed to delete database file '%s' for UserID %d, DB '%s': %v", dbFilePath, userID, dbName, err)
+			// You could potentially schedule a retry or flag for cleanup later
+		} else {
+			log.Printf("Handler: Database file '%s' already deleted or did not exist.", dbFilePath)
+		}
+	} else {
+		log.Printf("Handler: Successfully deleted database file '%s'", dbFilePath)
+		// Optional: Try to remove the parent directory if empty, but adds complexity/risk
+		// userDbDir := filepath.Dir(dbFilePath)
+		// if entries, _ := os.ReadDir(userDbDir); len(entries) == 0 { os.Remove(userDbDir) }
+	}
+
+	log.Printf("Handler: Completed delete request for DB '%s', UserID %d", dbName, userID)
+	c.Status(http.StatusNoContent) // Return 204 No Content on success
 }
 
 // --- *** END NEW ---

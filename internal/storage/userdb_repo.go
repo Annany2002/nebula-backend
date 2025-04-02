@@ -94,8 +94,6 @@ func PragmaTableInfo(ctx context.Context, userDB *sql.DB, tableName string) (map
 	return columnTypes, nil
 }
 
-// --- *** NEW: List Tables in User DB *** ---
-
 // ListTables retrieves a list of table names from the user's database file.
 func ListTables(ctx context.Context, userDB *sql.DB) ([]string, error) {
 	// Query sqlite_master (or sqlite_schema in newer versions) for tables
@@ -128,8 +126,6 @@ func ListTables(ctx context.Context, userDB *sql.DB) ([]string, error) {
 	return tableNames, nil
 }
 
-// --- *** END NEW *** ---
-
 // CreateTable executes a CREATE TABLE statement in the user DB.
 func CreateTable(ctx context.Context, userDB *sql.DB, createSQL string) error {
 	_, err := userDB.ExecContext(ctx, createSQL) // createSQL assumed pre-validated
@@ -140,6 +136,24 @@ func CreateTable(ctx context.Context, userDB *sql.DB, createSQL string) error {
 	}
 	return nil
 }
+
+// --- *** NEW: Drop Table in User DB *** ---
+
+// DropTable executes a DROP TABLE statement in the user DB.
+// tableName should be pre-validated by the caller.
+func DropTable(ctx context.Context, userDB *sql.DB, tableName string) error {
+	// Use IF EXISTS to prevent error if table doesn't exist (makes operation idempotent)
+	dropSQL := fmt.Sprintf("DROP TABLE IF EXISTS %s;", tableName) // tableName is assumed validated
+	_, err := userDB.ExecContext(ctx, dropSQL)
+	if err != nil {
+		// This could indicate a more serious issue (permissions, locked db, etc.)
+		log.Printf("Storage: Failed DROP TABLE for Table '%s': %v", tableName, err)
+		return fmt.Errorf("database error dropping table: %w", err)
+	}
+	return nil
+}
+
+// --- *** END NEW *** ---
 
 // --- User DB Record CRUD Operations ---
 

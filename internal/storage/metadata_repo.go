@@ -128,4 +128,31 @@ func ListUserDatabases(ctx context.Context, db *sql.DB, userID int64) ([]string,
 	return dbNames, nil
 }
 
+// --- *** NEW: Delete Database Registration *** ---
+
+// DeleteDatabaseRegistration removes the database entry from the metadata table.
+// It returns ErrDatabaseNotFound if no matching entry was found.
+func DeleteDatabaseRegistration(ctx context.Context, db *sql.DB, userID int64, dbName string) error {
+	deleteSQL := `DELETE FROM databases WHERE user_id = ? AND db_name = ?;`
+	result, err := db.ExecContext(ctx, deleteSQL, userID, dbName)
+	if err != nil {
+		// Likely a connection or syntax issue, not "not found"
+		log.Printf("Storage: Error executing delete registration for UserID %d, DB '%s': %v", userID, dbName, err)
+		return fmt.Errorf("database error deleting registration: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		log.Printf("Storage: Error getting RowsAffected for delete registration UserID %d, DB '%s': %v", userID, dbName, err)
+		return fmt.Errorf("failed confirming registration deletion: %w", err)
+	}
+
+	if rowsAffected == 0 {
+		// No rows matched the user_id and db_name combination
+		return ErrDatabaseNotFound
+	}
+
+	return nil // Success
+}
+
 // --- *** END NEW *** ---

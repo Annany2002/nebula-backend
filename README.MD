@@ -1,30 +1,36 @@
 # Nebula
 
-An Minimum Viable Product (MVP) for a Backend-as-a-Service (BaaS) built using Go.
+An Minimum Viable Product (MVP) for a Backend-as-a-Service (BaaS) built using Go. This version includes core management APIs and basic rate limiting.
 
 ## Description
 
 This project demonstrates the core concepts of a BaaS, allowing authenticated users to:
 
 1.  Register and Login securely (JWT-based).
-2.  Request the creation of their own "databases".
-3.  Define table schemas within those databases.
+2.  Request the creation of their own "databases", list them, and delete them.
+3.  Define table schemas within those databases, list them, and delete them.
 4.  Perform basic CRUD (Create, Read, Update, Delete) operations on records within their tables, with basic filtering support.
+5.  Interact with the API within basic rate limits.
 
 **Simplification:** For this MVP, each user "database" is implemented as a separate SQLite file on the server (`data/<user_id>/<db_name>.db`), managed by the Go application. A central SQLite database (`data/metadata.db`) tracks users and database mappings.
 
-**Improvements:** This version features a refactored structure (`cmd`, `api`, `internal`), externalized configuration (via `.env`/environment variables), centralized error handling, abstracted storage logic, stricter validation, and foundational automated tests.
+**Improvements:** This version features a refactored structure (`cmd`, `api`, `internal`), externalized configuration (via `.env`/environment variables), centralized error handling, abstracted storage logic, stricter validation, foundational automated tests, DB/Table management APIs, and IP-based rate limiting.
 
 ## Features
 
 - **Authentication:**
   - `POST /auth/signup`: User registration.
   - `POST /auth/login`: User login, returns JWT.
-- **Protected API Group (`/api/v1`):** Requires `Authorization: Bearer <token>` header.
+- **Protected API Group (`/api/v1`):** Requires `Authorization: Bearer <token>` header. Basic IP-based rate limiting applied.
   - `GET /api/v1/me`: Test endpoint to check authentication and get user ID.
 - **Database Management:**
   - `POST /api/v1/databases`: Register a new database name for the user.
+  - `GET /api/v1/databases`: List database names registered by the user.
+  - `DELETE /api/v1/databases/{db_name}`: Delete a database registration (and attempts to delete the data file).
+- **Table / Schema Management:**
   - `POST /api/v1/databases/{db_name}/schema`: Define a table schema within a registered database.
+  - `GET /api/v1/databases/{db_name}/tables`: List tables within a specific database.
+  - `DELETE /api/v1/databases/{db_name}/tables/{table_name}`: Delete (drop) a table within a specific database.
 - **Record CRUD Operations:**
   - `POST /api/v1/databases/{db_name}/tables/{table_name}/records`: Create a new record (with type validation).
   - `GET /api/v1/databases/{db_name}/tables/{table_name}/records`: List records in a table (supports basic `?column=value` filtering).
@@ -40,6 +46,7 @@ This project demonstrates the core concepts of a BaaS, allowing authenticated us
 - **Authentication:** JWT (`github.com/golang-jwt/jwt/v5`)
 - **Password Hashing:** Bcrypt (`golang.org/x/crypto/bcrypt`)
 - **Configuration:** `github.com/joho/godotenv` (for `.env` loading)
+- **Rate Limiting:** `github.com/gin-contrib/ratelimit`
 - **Testing:** Go standard `testing`, `net/http/httptest`, `github.com/stretchr/testify/assert`
 
 ## Project Structure
@@ -93,16 +100,16 @@ nebula-backend/
 
     ```bash
     go mod tidy
+    # Or explicitly: go get ./...
     ```
 
 3.  **Configuration:**
 
-    - This project uses environment variables for configuration, with support for a `.env` file for local development.
-    - **Copy the example:** `cp .env.example .env`
+    - Copy the example environment file: `cp .env.example .env`
     - **Edit `.env`:**
-      - **CRITICAL:** Set `JWT_SECRET` to a strong, unique, randomly generated secret key (at least 32 characters recommended). **Do not use the default placeholder.**
-      - Adjust `SERVER_PORT`, `JWT_EXPIRATION_HOURS`, `DB_DIR`, `DB_FILE` if needed (defaults are usually fine for local dev).
-    - Ensure the `.env` file is listed in your `.gitignore`.
+      - **CRITICAL:** Set `JWT_SECRET` to a strong, unique, randomly generated secret key.
+      - Adjust other variables (`SERVER_PORT`, `JWT_EXPIRATION_HOURS`, etc.) if needed.
+    - Ensure `.env` is in `.gitignore`.
 
 4.  **Run the Server:**
     ```bash
@@ -112,11 +119,11 @@ nebula-backend/
     ```bash
     air
     ```
-    The server should start, load configuration, initialize the database in the `data/` directory, and listen on the configured port (default `:8080`).
+    The server will start on the configured port (default `:8080`).
 
 ## API Usage / Testing Examples (`curl`)
 
-_(The API endpoints remain the same. Replace `<token>`, `<db_name>`, etc. with actual values. Use the email/password you signed up with.)_
+_(Replace `<token>`, `<db_name>`, etc. Use your actual token/names)_
 
 1.  **Signup:**
     ```bash
@@ -169,18 +176,38 @@ _(The API endpoints remain the same. Replace `<token>`, `<db_name>`, etc. with a
     # ... set TOKEN, DB_NAME, TABLE_NAME, RECORD_ID=1 ...
     curl -X DELETE -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/v1/databases/$DB_NAME/tables/$TABLE_NAME/records/$RECORD_ID
     ```
+10. **Update Record:**
+    ```bash
+    curl -X PUT -H "Authorization: Bearer $TOKEN" ... ".../records/$RECORD_ID"
+    ```
+11. **Delete Record:**
+    ```bash
+    curl -X DELETE -H "Authorization: Bearer $TOKEN" ".../records/$RECORD_ID"
+    ```
+12. **Delete Table:**
+    ```bash
+    TOKEN="<your_jwt_token>"
+    DB_NAME="my_app_db"
+    TABLE_NAME="tasks_to_delete"
+    curl -X DELETE -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/v1/databases/$DB_NAME/tables/$TABLE_NAME
+    ```
+13. **Delete Database:**
+    ```bash
+    TOKEN="<your_jwt_token>"
+    DB_NAME="db_to_delete"
+    curl -X DELETE -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/v1/databases/$DB_NAME
+    ```
 
 ## Limitations & Future Work
 
-While significantly improved, this remains an MVP and has limitations for production use:
+This remains an MVP aimed at demonstrating core concepts. Significant limitations exist for production use:
 
-- **Scalability:** The core SQLite file-per-user approach has inherent concurrency and scaling limitations. **Next Step:** Migrate to PostgreSQL/MySQL.
-- **Querying:** Basic equality filtering exists, but advanced querying (sorting, pagination, complex operators, relations) is missing. **Next Step:** Implement pagination and sorting.
-- **Database/Table Management:** No API endpoints to list/delete databases or tables. **Next Step:** Add management endpoints.
-- **Migrations:** No system for evolving the `metadata.db` schema or user schemas. **Next Step:** Implement a migration tool (e.g., `golang-migrate`).
-- **Security:** Foundational security is better (no hardcoded secrets), but needs rate limiting, deeper input sanitization, Role-Based Access Control (RBAC), resource usage limits.
-- **Data Validation:** Type checking exists, but more complex business logic validation rules are needed.
-- **Testing:** Basic auth integration tests and validation unit tests exist, but comprehensive coverage (especially for CRUD operations) is needed. **Next Step:** Add integration tests for all endpoints.
-- **Logging:** Uses standard `log`; should be upgraded to structured logging (e.g., `zerolog`, `zap`).
+- **Scalability:** The SQLite file-per-user approach is the primary bottleneck. **Next Step:** Migrate to PostgreSQL/MySQL.
+- **Querying:** Only basic equality filtering exists. **Next Step:** Implement pagination, sorting, and advanced filtering operators.
+- **Migrations:** No system for evolving the `metadata.db` schema or user schemas. **Next Step:** Implement a migration tool.
+- **Security:** Basic rate limiting is in place, but requires deeper input sanitization, Role-Based Access Control (RBAC), resource usage limits. **Next Step:** Add more security layers.
+- **Data Validation:** Only type checking exists; complex validation rules are needed.
+- **Testing:** Foundational tests exist, but comprehensive coverage (especially for CRUD and Management APIs) is needed. **Next Step:** Add integration tests for all endpoints.
+- **Logging:** Uses standard `log`; needs upgrading to structured logging. **Next Step:** Integrate `zerolog` or `zap`.
 - **API Documentation:** No Swagger/OpenAPI specification. **Next Step:** Add Swagger generation.
 - **Missing BaaS Features:** Lacks file storage, serverless functions, real-time features, etc.

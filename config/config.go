@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/joho/godotenv" // Import godotenv
+	"github.com/joho/godotenv"
 )
 
 // Config holds application configuration values
@@ -26,7 +26,7 @@ func LoadConfig() (*Config, error) {
 	log.Println("Loading configuration from environment variables...")
 
 	// Attempt to load .env file, ignore if not found (useful for production)
-	err := godotenv.Load("../../.env") // Loads .env file from current directory by default
+	err := godotenv.Load() // Loads .env file from current directory by default
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		log.Printf("Warning: Error loading .env file: %v", err)
 		// Decide if this should be a fatal error or just a warning
@@ -38,7 +38,6 @@ func LoadConfig() (*Config, error) {
 	jwtExpHoursStr := getEnv("JWT_EXPIRATION_HOURS", "24") // Default to 24 hours
 	dbDir := getEnv("DATABASE_DIRECTORY", "data")
 	dbFile := getEnv("DATABASE_DIRECTORY_FILE", "metadata.db")
-
 	// --- Validation and Parsing ---
 
 	// Critical: Ensure JWT Secret is set
