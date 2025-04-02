@@ -209,11 +209,12 @@ func (h *RecordHandler) CreateRecord(c *gin.Context) {
 	})
 }
 
-// ListRecords handles retrieving all records.
+// --- MODIFIED: ListRecords handles retrieving all records with filtering ---
 func (h *RecordHandler) ListRecords(c *gin.Context) {
 	userDB, tableName, dbFilePath, err := h.getUserDBConn(c)
-	if err != nil { /* ... handle getUserDBConn error (400, 404, 500) ... */
-		_ = c.Error(err)
+	if err != nil {
+		// Handle getUserDBConn error (400, 404, 500)
+		errToSet := err // Capture error for c.Error
 		if errors.Is(err, storage.ErrDatabaseNotFound) {
 			c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "Database not found or not registered."})
 		} else if strings.Contains(err.Error(), "invalid database or table name") {
@@ -221,19 +222,27 @@ func (h *RecordHandler) ListRecords(c *gin.Context) {
 		} else {
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to access database storage."})
 		}
+		_ = c.Error(errToSet) // Attach original error
 		return
 	}
 	defer userDB.Close()
 
-	selectSQL := fmt.Sprintf("SELECT * FROM %s;", tableName)
-	log.Printf("Handler: Executing List Records SQL for DB '%s': %s", dbFilePath, selectSQL)
+	// Pass the raw query parameters directly to the storage function
+	queryParams := c.Request.URL.Query() // type url.Values which is map[string][]string
 
-	results, err := storage.ListRecords(c.Request.Context(), userDB, selectSQL)
+	log.Printf("Handler: Listing Records for DB '%s', Table '%s' with filters: %v", dbFilePath, tableName, queryParams)
+
+	// Call the updated storage function
+	results, err := storage.ListRecords(c.Request.Context(), userDB, tableName, queryParams)
 	if err != nil {
-		_ = c.Error(err)
+		_ = c.Error(err) // Attach storage error
+		// Map specific errors returned from storage
 		if errors.Is(err, storage.ErrTableNotFound) {
 			c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("Table '%s' not found.", tableName)})
-		} else {
+		} else if errors.Is(err, storage.ErrInvalidFilterValue) {
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		} else // Handle new validation error
+		{
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to query records."})
 		}
 		return

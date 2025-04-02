@@ -7,18 +7,22 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/url"
+	"strconv"
 	"strings"
 
+	"github.com/Annany2002/nebula-backend/internal/core" // Import core for validation
 	"github.com/mattn/go-sqlite3"
 )
 
 // Specific errors for user DB operations
 var (
 	ErrRecordNotFound      = errors.New("record not found")
-	ErrTableNotFound       = errors.New("table not found")      // Derived from specific error strings
-	ErrColumnNotFound      = errors.New("column not found")     // Derived
-	ErrTypeMismatch        = errors.New("datatype mismatch")    // Derived
-	ErrConstraintViolation = errors.New("constraint violation") // Derived
+	ErrTableNotFound       = errors.New("table not found")                   // Derived from specific error strings
+	ErrColumnNotFound      = errors.New("column not found")                  // Derived
+	ErrTypeMismatch        = errors.New("datatype mismatch")                 // Derived
+	ErrConstraintViolation = errors.New("constraint violation")              // Derived
+	ErrInvalidFilterValue  = errors.New("invalid value provided for filter") // New error
 )
 
 // --- User DB Connection ---
@@ -132,21 +136,108 @@ func InsertRecord(ctx context.Context, userDB *sql.DB, insertSQL string, values 
 	return lastID, nil
 }
 
-// ListRecords executes SELECT * and returns results as a slice of maps.
-func ListRecords(ctx context.Context, userDB *sql.DB, selectSQL string) ([]map[string]interface{}, error) {
-	rows, err := userDB.QueryContext(ctx, selectSQL) // Assumes selectSQL is safe
+// --- MODIFIED: ListRecords executes SELECT * with filtering ---
+// Accepts tableName and query parameters directly.
+func ListRecords(ctx context.Context, userDB *sql.DB, tableName string, queryParams url.Values) ([]map[string]any, error) {
+
+	// 1. Fetch schema to validate filter keys and convert values
+	columnTypes, err := PragmaTableInfo(ctx, userDB, tableName)
 	if err != nil {
-		log.Printf("Storage: Failed SELECT *: %v\nSQL: %s", err, selectSQL)
-		if strings.Contains(err.Error(), "no such table") {
-			return nil, ErrTableNotFound
+		// PragmaTableInfo already checks for table not found
+		log.Printf("Storage: ListRecords failed getting schema for Table '%s': %v", tableName, err)
+		return nil, err // Propagate ErrTableNotFound or other schema errors
+	}
+
+	// 2. Build WHERE clause and arguments from queryParams
+	whereClauses := []string{}
+	args := []interface{}{}
+
+	for key, values := range queryParams {
+		if len(values) == 0 { // Should not happen with url.Values but check anyway
+			continue
 		}
+		filterValueStr := values[0] // Use only the first value for simple equality filter
+		lowerKey := strings.ToLower(key)
+
+		// A. Validate filter key is a valid identifier and exists in schema
+		if !core.IsValidIdentifier(key) {
+			log.Printf("Storage: ListRecords ignoring invalid filter key format: %s", key)
+			continue // Ignore invalid identifiers silently, or return error? For now, ignore.
+		}
+		expectedType, exists := columnTypes[lowerKey]
+		if !exists {
+			log.Printf("Storage: ListRecords ignoring filter key not in schema: %s", key)
+			continue // Ignore columns not in table silently, or return error? For now, ignore.
+		}
+
+		// B. Attempt to convert filterValueStr to expected type based on schema
+		var convertedValue interface{}
+		var conversionError error
+
+		switch expectedType {
+		case "INTEGER", "BOOLEAN": // Treat boolean as integer for filtering
+			// Try parsing as int first
+			if vInt, err := strconv.ParseInt(filterValueStr, 10, 64); err == nil {
+				convertedValue = vInt
+			} else {
+				// Try parsing as bool (true/false -> 1/0) if original type was BOOLEAN
+				// (Note: columnTypes stores normalized types like INTEGER, need original schema maybe?)
+				// Let's keep it simple: if it's not a valid int, error out for INTEGER/BOOLEAN filter
+				conversionError = fmt.Errorf("expected an integer for column '%s'", key)
+			}
+			// If handling actual boolean input:
+			// else if expectedType == "BOOLEAN" { ... parse "true"/"false" ... }
+
+		case "REAL":
+			if vFloat, err := strconv.ParseFloat(filterValueStr, 64); err == nil {
+				convertedValue = vFloat
+			} else {
+				conversionError = fmt.Errorf("expected a number (float) for column '%s'", key)
+			}
+		case "TEXT":
+			convertedValue = filterValueStr // Keep as string
+		case "BLOB":
+			// Cannot reliably filter BLOBs with simple equality from URL param
+			log.Printf("Storage: ListRecords ignoring filter on BLOB column: %s", key)
+			continue // Skip BLOB filtering
+		default:
+			log.Printf("Storage: ListRecords ignoring filter on column '%s' with unhandled type '%s'", key, expectedType)
+			continue // Skip unknown types
+		}
+
+		if conversionError != nil {
+			log.Printf("Storage: ListRecords conversion error for key '%s', value '%s': %v", key, filterValueStr, conversionError)
+			return nil, fmt.Errorf("%w: %s", ErrInvalidFilterValue, conversionError.Error()) // Return specific error
+		}
+
+		// C. Add to WHERE clause and arguments
+		// Use original key case from query param for the SQL column name for clarity
+		whereClauses = append(whereClauses, fmt.Sprintf("%s = ?", key))
+		args = append(args, convertedValue)
+
+	} // End loop over queryParams
+
+	// 3. Construct final SQL
+	selectSQL := fmt.Sprintf("SELECT * FROM %s", tableName) // tableName validated by handler implicitly via path lookup
+	if len(whereClauses) > 0 {
+		selectSQL += " WHERE " + strings.Join(whereClauses, " AND ")
+	}
+	selectSQL += ";" // End statement
+
+	log.Printf("Storage: Executing List Records SQL: %s | Args: %v", selectSQL, args)
+
+	// 4. Execute query
+	rows, err := userDB.QueryContext(ctx, selectSQL, args...)
+	if err != nil {
+		log.Printf("Storage: Failed filtered SELECT *: %v\nSQL: %s", err, selectSQL)
+		// No need to check "no such table" here, PragmaTableInfo already did
 		return nil, fmt.Errorf("database error listing records: %w", err)
 	}
 	defer rows.Close()
 
+	// 5. Process results (same as before)
 	columns, err := rows.Columns()
-	if err != nil {
-		log.Printf("Storage: Failed getting columns for SELECT *: %v", err)
+	if err != nil { /* ... handle error ... */
 		return nil, fmt.Errorf("failed processing results: %w", err)
 	}
 	numColumns := len(columns)
@@ -158,9 +249,7 @@ func ListRecords(ctx context.Context, userDB *sql.DB, selectSQL string) ([]map[s
 		for i := range values {
 			scanArgs[i] = &values[i]
 		}
-
-		if err := rows.Scan(scanArgs...); err != nil {
-			log.Printf("Storage: Failed scanning row for SELECT *: %v", err)
+		if err := rows.Scan(scanArgs...); err != nil { /* ... handle scan error ... */
 			return nil, fmt.Errorf("failed reading record data: %w", err)
 		}
 
@@ -168,17 +257,17 @@ func ListRecords(ctx context.Context, userDB *sql.DB, selectSQL string) ([]map[s
 		for i, colName := range columns {
 			rawValue := values[i]
 			if byteSlice, ok := rawValue.([]byte); ok {
-				rowData[colName] = string(byteSlice) // Handle bytes -> string
+				rowData[colName] = string(byteSlice)
 			} else {
 				rowData[colName] = rawValue
 			}
 		}
 		results = append(results, rowData)
 	}
-	if err = rows.Err(); err != nil {
-		log.Printf("Storage: Error during iteration for SELECT *: %v", err)
+	if err = rows.Err(); err != nil { /* ... handle iteration error ... */
 		return nil, fmt.Errorf("failed processing all records: %w", err)
 	}
+
 	return results, nil
 }
 

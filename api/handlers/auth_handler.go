@@ -36,9 +36,7 @@ func (h *AuthHandler) Signup(c *gin.Context) {
 
 	if err := c.ShouldBindJSON(&req); err != nil {
 		log.Printf("Signup binding error: %v", err)
-		// Use c.Error() for centralized handling later
-		c.Error(err)                                                                                         // Attach error to context
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid request body: " + err.Error()}) // Temporary direct response
+		_ = c.Error(err) // Attach the binding error
 		return
 	}
 
@@ -46,29 +44,20 @@ func (h *AuthHandler) Signup(c *gin.Context) {
 	hashedPassword, err := auth.HashPassword(req.Password)
 	if err != nil {
 		log.Printf("Failed to hash password during signup for email %s: %v", req.Email, err)
-		c.Error(err)
-		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to process password"}) // Temporary
+		_ = c.Error(err) // Attach internal error
 		return
 	}
 
 	// Create user using the storage function
 	_, err = storage.CreateUser(c.Request.Context(), h.DB, req.Email, hashedPassword)
 	if err != nil {
-		if errors.Is(err, storage.ErrEmailExists) {
-			log.Printf("Signup attempt with duplicate email: %s", req.Email)
-			c.Error(err)
-			c.AbortWithStatusJSON(http.StatusConflict, gin.H{"error": "Email address already registered"}) // Temporary
-			return
-		}
-		// Handle other potential database errors from storage layer
-		log.Printf("Failed to create user %s: %v", req.Email, err)
-		c.Error(err)
-		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to register user"}) // Temporary
-		return
+		log.Printf("Failed to create user %s: %v", req.Email, err) // Log context
+		_ = c.Error(err)                                           // Attach storage error (e.g., ErrEmailExists)
+		return                                                     // Let middleware handle response
 	}
 
 	log.Printf("Successfully registered user with email %s", req.Email)
-	c.JSON(http.StatusCreated, gin.H{"message": "User registered successfully"})
+	c.JSON(http.StatusCreated, gin.H{"message": "User registered successfully"}) // Success response remains
 }
 
 // Login handles user login requests and issues JWT on success.
@@ -77,8 +66,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 
 	if err := c.ShouldBindJSON(&req); err != nil {
 		log.Printf("Login binding error: %v", err)
-		c.Error(err)
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid request body: " + err.Error()}) // Temporary
+		_ = c.Error(err)
 		return
 	}
 
@@ -87,25 +75,19 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	if err != nil {
 		if errors.Is(err, storage.ErrUserNotFound) {
 			log.Printf("Login attempt failed for email %s: user not found", req.Email)
-			// Return generic unauthorized error
-			c.Error(err)                                                                                // You might define a specific ErrInvalidCredentials later
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid email or password"}) // Temporary
+			_ = c.Error(err)
 			return
 		}
 		// Handle other potential database errors
 		log.Printf("Database error during login for email %s: %v", req.Email, err)
-		c.Error(err)
-		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Login failed due to server error"}) // Temporary
+		_ = c.Error(err)
 		return
 	}
 
 	// Check password using the internal auth function
 	if !auth.CheckPasswordHash(req.Password, user.PasswordHash) {
 		log.Printf("Login attempt failed for email %s: invalid password", user.Email)
-		// Return generic unauthorized error
-		// Use same error message as user not found for security
-		c.Error(errors.New("invalid password"))                                                     // Or ErrInvalidCredentials
-		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid email or password"}) // Temporary
+		_ = c.Error(err)
 		return
 	}
 
@@ -113,8 +95,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	tokenString, err := auth.GenerateJWT(user.ID, h.Cfg.JWTSecret, h.Cfg.JWTExpiration)
 	if err != nil {
 		log.Printf("Failed to generate JWT for user %d: %v", user.ID, err)
-		c.Error(err)
-		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate authentication token"}) // Temporary
+		_ = c.Error(err)
 		return
 	}
 

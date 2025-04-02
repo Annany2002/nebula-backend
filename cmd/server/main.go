@@ -2,6 +2,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"os"
 
@@ -38,7 +39,7 @@ func main() {
 
 	// 4. Start Server
 	log.Printf("Server listening on port %s", cfg.ServerPort)
-	if err := router.Run(cfg.ServerPort); err != nil {
+	if err := router.Run(fmt.Sprintf(":%s", cfg.ServerPort)); err != nil {
 		log.Fatalf("Failed to start server: %v", err)
 	}
 }
