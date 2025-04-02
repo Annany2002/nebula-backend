@@ -35,6 +35,7 @@ Thumbs.db
 
 # Runtime data files - IMPORTANT for this project
 /data/
+data
 *.db
 *.db-journal # SQLite journal files
 

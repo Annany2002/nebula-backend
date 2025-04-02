@@ -136,21 +136,19 @@ func InsertRecord(ctx context.Context, userDB *sql.DB, insertSQL string, values 
 	return lastID, nil
 }
 
-// --- MODIFIED: ListRecords executes SELECT * with filtering ---
+// --- MODIFIED: ListRecords with Strict Filter Key Validation ---
 // Accepts tableName and query parameters directly.
 func ListRecords(ctx context.Context, userDB *sql.DB, tableName string, queryParams url.Values) ([]map[string]any, error) {
 
 	// 1. Fetch schema to validate filter keys and convert values
 	columnTypes, err := PragmaTableInfo(ctx, userDB, tableName)
 	if err != nil {
-		// PragmaTableInfo already checks for table not found
-		log.Printf("Storage: ListRecords failed getting schema for Table '%s': %v", tableName, err)
 		return nil, err // Propagate ErrTableNotFound or other schema errors
 	}
 
 	// 2. Build WHERE clause and arguments from queryParams
 	whereClauses := []string{}
-	args := []interface{}{}
+	args := []any{}
 
 	for key, values := range queryParams {
 		if len(values) == 0 { // Should not happen with url.Values but check anyway
@@ -159,18 +157,22 @@ func ListRecords(ctx context.Context, userDB *sql.DB, tableName string, queryPar
 		filterValueStr := values[0] // Use only the first value for simple equality filter
 		lowerKey := strings.ToLower(key)
 
-		// A. Validate filter key is a valid identifier and exists in schema
+		// A. Validate filter key format
 		if !core.IsValidIdentifier(key) {
-			log.Printf("Storage: ListRecords ignoring invalid filter key format: %s", key)
-			continue // Ignore invalid identifiers silently, or return error? For now, ignore.
-		}
-		expectedType, exists := columnTypes[lowerKey]
-		if !exists {
-			log.Printf("Storage: ListRecords ignoring filter key not in schema: %s", key)
-			continue // Ignore columns not in table silently, or return error? For now, ignore.
+			log.Printf("Storage: ListRecords received invalid filter key format: %s", key)
+			// *** CHANGED: Return error instead of ignoring ***
+			return nil, fmt.Errorf("%w: invalid filter key format '%s'", ErrInvalidFilterValue, key)
 		}
 
-		// B. Attempt to convert filterValueStr to expected type based on schema
+		// B. Validate filter key exists in schema
+		expectedType, exists := columnTypes[lowerKey]
+		if !exists {
+			log.Printf("Storage: ListRecords received filter key not in schema: %s", key)
+			// *** CHANGED: Return error instead of ignoring ***
+			return nil, fmt.Errorf("%w: filter key '%s' not found in table schema", ErrInvalidFilterValue, key)
+		}
+
+		// C. Attempt to convert filterValueStr to expected type (logic remains same)
 		var convertedValue interface{}
 		var conversionError error
 
