@@ -16,10 +16,11 @@ import (
 
 // Specific errors for metadata operations
 var (
-	ErrUserNotFound     = errors.New("user not found")
-	ErrEmailExists      = errors.New("email already exists")
-	ErrDatabaseExists   = errors.New("database name already exists for this user")
-	ErrDatabaseNotFound = errors.New("database not found or not registered for this user")
+	ErrUserNotFound       = errors.New("user not found")
+	ErrEmailExists        = errors.New("email already exists")
+	ErrDatabaseExists     = errors.New("database name already exists for this user")
+	ErrDatabaseNotFound   = errors.New("database not found or not registered for this user")
+	ErrInvalidCredentials = errors.New("invalid credentials")
 )
 
 // --- User Operations ---

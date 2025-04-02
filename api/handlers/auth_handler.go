@@ -3,7 +3,6 @@ package handlers
 
 import (
 	"database/sql"
-	"errors"
 	"log"
 	"net/http"
 
@@ -62,46 +61,61 @@ func (h *AuthHandler) Signup(c *gin.Context) {
 
 // Login handles user login requests and issues JWT on success.
 func (h *AuthHandler) Login(c *gin.Context) {
-	var req models.LoginRequest // Use DTO
+	var req models.LoginRequest
 
 	if err := c.ShouldBindJSON(&req); err != nil {
 		log.Printf("Login binding error: %v", err)
-		_ = c.Error(err)
-		return
+		_ = c.Error(err) // Attach binding error
+		return           // Let middleware handle
 	}
 
-	// Find user by email using the storage function
 	user, err := storage.FindUserByEmail(c.Request.Context(), h.DB, req.Email)
 	if err != nil {
-		if errors.Is(err, storage.ErrUserNotFound) {
-			log.Printf("Login attempt failed for email %s: user not found", req.Email)
-			_ = c.Error(err)
-			return
-		}
-		// Handle other potential database errors
-		log.Printf("Database error during login for email %s: %v", req.Email, err)
-		_ = c.Error(err)
+		log.Printf("Login failed for email %s: %v", req.Email, err)
+		_ = c.Error(err) // Attach ErrUserNotFound or DB error
 		return
 	}
 
-	// Check password using the internal auth function
 	if !auth.CheckPasswordHash(req.Password, user.PasswordHash) {
 		log.Printf("Login attempt failed for email %s: invalid password", user.Email)
-		_ = c.Error(err)
-		return
+		// *** CHANGED: Use the specific error variable ***
+		_ = c.Error(storage.ErrInvalidCredentials)
+		return // Let middleware handle
 	}
 
-	// Generate JWT using the internal auth function
+	// ... (generate JWT and return success) ...
 	tokenString, err := auth.GenerateJWT(user.ID, h.Cfg.JWTSecret, h.Cfg.JWTExpiration)
 	if err != nil {
 		log.Printf("Failed to generate JWT for user %d: %v", user.ID, err)
-		_ = c.Error(err)
+		_ = c.Error(err) // Attach JWT generation error
+		return
+	}
+	// ... success response ...
+	c.JSON(http.StatusOK, models.LoginResponse{Message: "Login successful", Token: tokenString})
+}
+
+/*
+user, err := storage.FindUserByEmail(c.Request.Context(), h.DB, req.Email)
+	if err != nil {
+		log.Printf("Login failed for email %s: %v", req.Email, err)
+		_ = c.Error(err) // Attach ErrUserNotFound or DB error
 		return
 	}
 
-	log.Printf("JWT generated successfully for user ID %d", user.ID)
-	c.JSON(http.StatusOK, models.LoginResponse{ // Use response DTO
-		Message: "Login successful",
-		Token:   tokenString,
-	})
-}
+	if !auth.CheckPasswordHash(req.Password, user.PasswordHash) {
+		log.Printf("Login attempt failed for email %s: invalid password", user.Email)
+		// *** CHANGED: Use the specific error variable ***
+		_ = c.Error(storage.ErrInvalidCredentials)
+		return // Let middleware handle
+	}
+
+	// ... (generate JWT and return success) ...
+	tokenString, err := auth.GenerateJWT(user.ID, h.Cfg.JWTSecret, h.Cfg.JWTExpiration)
+	if err != nil {
+		log.Printf("Failed to generate JWT for user %d: %v", user.ID, err)
+		_ = c.Error(err) // Attach JWT generation error
+		return
+	}
+    // ... success response ...
+	c.JSON(http.StatusOK, models.LoginResponse{ Message: "Login successful", Token:   tokenString })
+*/
