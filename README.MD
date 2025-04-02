@@ -1,17 +1,19 @@
 # Nebula
 
-A Minimum Viable Product (MVP) for a Backend-as-a-Service (BaaS) built using Go.
+An Minimum Viable Product (MVP) for a Backend-as-a-Service (BaaS) built using Go.
 
 ## Description
 
 This project demonstrates the core concepts of a BaaS, allowing authenticated users to:
 
-1.  Register and Login.
+1.  Register and Login securely (JWT-based).
 2.  Request the creation of their own "databases".
 3.  Define table schemas within those databases.
-4.  Perform basic CRUD (Create, Read, Update, Delete) operations on records within their tables.
+4.  Perform basic CRUD (Create, Read, Update, Delete) operations on records within their tables, with basic filtering support.
 
 **Simplification:** For this MVP, each user "database" is implemented as a separate SQLite file on the server (`data/<user_id>/<db_name>.db`), managed by the Go application. A central SQLite database (`data/metadata.db`) tracks users and database mappings.
+
+**Improvements:** This version features a refactored structure (`cmd`, `api`, `internal`), externalized configuration (via `.env`/environment variables), centralized error handling, abstracted storage logic, stricter validation, and foundational automated tests.
 
 ## Features
 
@@ -24,10 +26,10 @@ This project demonstrates the core concepts of a BaaS, allowing authenticated us
   - `POST /api/v1/databases`: Register a new database name for the user.
   - `POST /api/v1/databases/{db_name}/schema`: Define a table schema within a registered database.
 - **Record CRUD Operations:**
-  - `POST /api/v1/databases/{db_name}/tables/{table_name}/records`: Create a new record.
-  - `GET /api/v1/databases/{db_name}/tables/{table_name}/records`: List all records in a table.
+  - `POST /api/v1/databases/{db_name}/tables/{table_name}/records`: Create a new record (with type validation).
+  - `GET /api/v1/databases/{db_name}/tables/{table_name}/records`: List records in a table (supports basic `?column=value` filtering).
   - `GET /api/v1/databases/{db_name}/tables/{table_name}/records/{record_id}`: Get a single record by ID.
-  - `PUT /api/v1/databases/{db_name}/tables/{table_name}/records/{record_id}`: Update an existing record.
+  - `PUT /api/v1/databases/{db_name}/tables/{table_name}/records/{record_id}`: Update an existing record (with type validation).
   - `DELETE /api/v1/databases/{db_name}/tables/{table_name}/records/{record_id}`: Delete a record by ID.
 
 ## Technology Stack
@@ -37,22 +39,40 @@ This project demonstrates the core concepts of a BaaS, allowing authenticated us
 - **Database:** SQLite (`github.com/mattn/go-sqlite3`)
 - **Authentication:** JWT (`github.com/golang-jwt/jwt/v5`)
 - **Password Hashing:** Bcrypt (`golang.org/x/crypto/bcrypt`)
+- **Configuration:** `github.com/joho/godotenv` (for `.env` loading)
+- **Testing:** Go standard `testing`, `net/http/httptest`, `github.com/stretchr/testify/assert`
 
-## Current Project Structure (Simplified)
+## Project Structure
 
 ```bash
 nebula-backend/
-├── data/ # Runtime SQLite database files (ignored by git)
-├── go.mod # Go modules file
-├── go.sum # Go modules checksums
-├── .gitignore # Git ignore rules
-├── config.go # Configuration variables (JWT secret, DB paths)
-├── database.go # Metadata DB initialization
-├── models.go # Data structure definitions (structs)
-├── auth.go # Authentication logic (handlers, middleware, utils)
-├── db_handlers.go # Handlers for DB/Schema/Record operations
-└── main.go # Main application entry point, server setup, routing
+├── api/                 # API layer (HTTP handlers, routing, middleware, DTOs)
+│   ├── handlers/        # Gin handlers (auth_handler.go, database_handler.go, record_handler.go)
+│   ├── middleware/      # Middleware (auth_middleware.go, error_handler.go)
+│   ├── models/          # Request/Response DTOs (auth_models.go, database_models.go)
+│   └── router.go        # Gin router setup and route definitions
+├── cmd/                 # Main application(s) entry point
+│   └── server/          # Specific server application binary
+│       └── main.go      # Main func, dependency injection, starts server
+├── config/              # Configuration loading (config.go)
+├── internal/            # Internal application logic (not for external use)
+│   ├── auth/            # Authentication core logic (hashing, jwt)
+│   ├── core/            # Core helper functions (e.g., validation.go)
+│   ├── domain/          # Core domain models (e.g., User struct)
+│   └── storage/         # Data access layer (metadata_repo.go, userdb_repo.go, database.go)
+├── data/                # Runtime data (SQLite files) - ignored by git
+├── .env.example         # Example environment file (Copy to .env)
+├── .gitignore           # Git ignore rules
+├── go.mod               # Go modules file
+├── go.sum               # Go modules checksums
+└── README.md            # This file
 ```
+
+- **`cmd/server/main.go`**: Application entry point. Initializes dependencies (config, DB) and starts the API server.
+- **`api/`**: Handles HTTP requests/responses, routing, middleware, and API-specific data models (DTOs).
+- **`internal/`**: Contains core business logic, domain models, and data storage interactions, independent of the API layer.
+- **`config/`**: Manages application configuration loading.
+- **`data/`**: Stores runtime data (SQLite files). Not committed to Git.
 
 ## Setup & Running
 
@@ -62,7 +82,7 @@ nebula-backend/
 
 **Steps:**
 
-1.  **Clone the repository (Example):**
+1.  **Clone the repository:**
 
     ```bash
     git clone https://github.com/Annany2002/nebula-backend.git
@@ -75,138 +95,92 @@ nebula-backend/
     go mod tidy
     ```
 
-    _(Or `go get ./...` if needed)_
-
 3.  **Configuration:**
 
-    - **IMPORTANT:** Change the placeholder `jwtSecretKey` in `config.go` to a strong, unique secret key. In a real application, load this from environment variables or a secure configuration source.
-    - You can adjust `jwtExpiration` in `config.go`.
-    - The server runs on port `:8080` by default (defined in `main.go`).
+    - This project uses environment variables for configuration, with support for a `.env` file for local development.
+    - **Copy the example:** `cp .env.example .env`
+    - **Edit `.env`:**
+      - **CRITICAL:** Set `JWT_SECRET` to a strong, unique, randomly generated secret key (at least 32 characters recommended). **Do not use the default placeholder.**
+      - Adjust `SERVER_PORT`, `JWT_EXPIRATION_HOURS`, `DB_DIR`, `DB_FILE` if needed (defaults are usually fine for local dev).
+    - Ensure the `.env` file is listed in your `.gitignore`.
 
 4.  **Run the Server:**
-
     ```bash
-    go run .
+    go run ./cmd/server/main.go
     ```
-
-    or
-
+    or using `air` for live reloading (if installed):
     ```bash
     air
     ```
-
-    The server should start, initialize the database in the `data/` directory, and listen on port 8080.
+    The server should start, load configuration, initialize the database in the `data/` directory, and listen on the configured port (default `:8080`).
 
 ## API Usage / Testing Examples (`curl`)
 
-_(Replace `<token>`, `<db_name>`, `<table_name>`, `<record_id>` with actual values)_
+_(The API endpoints remain the same. Replace `<token>`, `<db_name>`, etc. with actual values. Use the email/password you signed up with.)_
 
 1.  **Signup:**
-
     ```bash
-    curl -X POST -H "Content-Type: application/json" \
-         -d '{"email": "[email address removed]", "password": "password123"}' \
-         http://localhost:8080/auth/signup
+    curl -X POST -H "Content-Type: application/json" -d '{"email": "user@example.com", "password": "password123"}' http://localhost:8080/auth/signup
     ```
-
 2.  **Login:**
-
     ```bash
-    curl -X POST -H "Content-Type: application/json" \
-         -d '{"email": "[email address removed]", "password": "password123"}' \
-         http://localhost:8080/auth/login
+    curl -X POST -H "Content-Type: application/json" -d '{"email": "user@example.com", "password": "password123"}' http://localhost:8080/auth/login
+    # Save the token from the response
     ```
-
-    _(Save the `token` from the response for subsequent requests)_
-
-3.  **Create Database:**
-
+3.  **Create Database:** _(Requires valid token)_
     ```bash
     TOKEN="<your_jwt_token>"
-    curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-         -d '{"db_name": "my_app_db"}' \
-         http://localhost:8080/api/v1/databases
+    curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{"db_name": "my_app_db"}' http://localhost:8080/api/v1/databases
     ```
-
-4.  **Define Schema:**
-
+4.  **Define Schema:** _(Requires valid token)_
     ```bash
-    TOKEN="<your_jwt_token>"
-    DB_NAME="my_app_db"
+    # ... set TOKEN and DB_NAME=my_app_db ...
     curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
          -d '{ "table_name": "tasks", "columns": [ {"name": "description", "type": "TEXT"}, {"name": "priority", "type": "INTEGER"}, {"name": "done", "type": "BOOLEAN"} ] }' \
          http://localhost:8080/api/v1/databases/$DB_NAME/schema
     ```
-
-5.  **Create Record:**
-
+5.  **Create Record:** _(Requires valid token)_
     ```bash
-    TOKEN="<your_jwt_token>"
-    DB_NAME="my_app_db"
-    TABLE_NAME="tasks"
+    # ... set TOKEN, DB_NAME=my_app_db, TABLE_NAME=tasks ...
     curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-         -d '{ "description": "Finish README", "priority": 1, "done": false }' \
+         -d '{ "description": "Document new structure", "priority": 1, "done": false }' \
          http://localhost:8080/api/v1/databases/$DB_NAME/tables/$TABLE_NAME/records
     ```
-
-    _(Note the returned `record_id`)_
-
-6.  **List Records:**
-
+6.  **List Records (with Filter):** _(Requires valid token)_
     ```bash
-    TOKEN="<your_jwt_token>"
-    DB_NAME="my_app_db"
-    TABLE_NAME="tasks"
-    curl -X GET -H "Authorization: Bearer $TOKEN" \
-         http://localhost:8080/api/v1/databases/$DB_NAME/tables/$TABLE_NAME/records
+    # ... set TOKEN, DB_NAME=my_app_db, TABLE_NAME=tasks ...
+    # Example filter:
+    curl -X GET -H "Authorization: Bearer $TOKEN" "http://localhost:8080/api/v1/databases/$DB_NAME/tables/$TABLE_NAME/records?priority=1&done=false"
     ```
-
-7.  **Get Single Record:**
-
+7.  **Get Single Record:** _(Requires valid token)_
     ```bash
-    TOKEN="<your_jwt_token>"
-    DB_NAME="my_app_db"
-    TABLE_NAME="tasks"
-    RECORD_ID=1 # Use an actual ID
-    curl -X GET -H "Authorization: Bearer $TOKEN" \
-         http://localhost:8080/api/v1/databases/$DB_NAME/tables/$TABLE_NAME/records/$RECORD_ID
+    # ... set TOKEN, DB_NAME, TABLE_NAME, RECORD_ID=1 ...
+    curl -X GET -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/v1/databases/$DB_NAME/tables/$TABLE_NAME/records/$RECORD_ID
     ```
-
-8.  **Update Record:**
-
+8.  **Update Record:** _(Requires valid token)_
     ```bash
-    TOKEN="<your_jwt_token>"
-    DB_NAME="my_app_db"
-    TABLE_NAME="tasks"
-    RECORD_ID=1 # Use an actual ID
+    # ... set TOKEN, DB_NAME, TABLE_NAME, RECORD_ID=1 ...
     curl -X PUT -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-         -d '{ "priority": 2, "done": true }' \
+         -d '{ "done": true }' \
          http://localhost:8080/api/v1/databases/$DB_NAME/tables/$TABLE_NAME/records/$RECORD_ID
     ```
-
-9.  **Delete Record:**
+9.  **Delete Record:** _(Requires valid token)_
     ```bash
-    TOKEN="<your_jwt_token>"
-    DB_NAME="my_app_db"
-    TABLE_NAME="tasks"
-    RECORD_ID=1 # Use an actual ID
-    curl -X DELETE -H "Authorization: Bearer $TOKEN" \
-         http://localhost:8080/api/v1/databases/$DB_NAME/tables/$TABLE_NAME/records/$RECORD_ID
+    # ... set TOKEN, DB_NAME, TABLE_NAME, RECORD_ID=1 ...
+    curl -X DELETE -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/v1/databases/$DB_NAME/tables/$TABLE_NAME/records/$RECORD_ID
     ```
-    _(Expects a `204 No Content` response)_
 
 ## Limitations & Future Work
 
-This is an MVP and lacks many features of a production-ready BaaS:
+While significantly improved, this remains an MVP and has limitations for production use:
 
-- **Configuration:** Secrets (JWT key) hardcoded; should use environment variables or config files.
-- **Scalability:** SQLite file-per-user has concurrency and scaling limitations. Replace with PostgreSQL/MySQL/etc.
-- **Error Handling:** Basic error handling; needs more structured and informative error responses.
-- **Querying:** Only basic CRUD; needs filtering, sorting, pagination, relations.
-- **Data Validation:** Only basic type checking; needs more complex validation rules.
-- **Migrations:** No system for evolving the `metadata.db` schema.
-- **Security:** Needs rate limiting, deeper input sanitization, role-based access control, resource usage limits.
-- **Database/Table Management:** No endpoints to list/delete databases or tables.
-- **Logging:** Basic `log` package usage; needs structured logging.
-- **Testing:** No automated unit or integration tests.
-- **API Documentation:** No Swagger/OpenAPI specification.
+- **Scalability:** The core SQLite file-per-user approach has inherent concurrency and scaling limitations. **Next Step:** Migrate to PostgreSQL/MySQL.
+- **Querying:** Basic equality filtering exists, but advanced querying (sorting, pagination, complex operators, relations) is missing. **Next Step:** Implement pagination and sorting.
+- **Database/Table Management:** No API endpoints to list/delete databases or tables. **Next Step:** Add management endpoints.
+- **Migrations:** No system for evolving the `metadata.db` schema or user schemas. **Next Step:** Implement a migration tool (e.g., `golang-migrate`).
+- **Security:** Foundational security is better (no hardcoded secrets), but needs rate limiting, deeper input sanitization, Role-Based Access Control (RBAC), resource usage limits.
+- **Data Validation:** Type checking exists, but more complex business logic validation rules are needed.
+- **Testing:** Basic auth integration tests and validation unit tests exist, but comprehensive coverage (especially for CRUD operations) is needed. **Next Step:** Add integration tests for all endpoints.
+- **Logging:** Uses standard `log`; should be upgraded to structured logging (e.g., `zerolog`, `zap`).
+- **API Documentation:** No Swagger/OpenAPI specification. **Next Step:** Add Swagger generation.
+- **Missing BaaS Features:** Lacks file storage, serverless functions, real-time features, etc.
