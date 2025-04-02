@@ -40,7 +40,7 @@ This project demonstrates the core concepts of a BaaS, allowing authenticated us
 
 ## Current Project Structure (Simplified)
 
-```bahs
+```bash
 nebula-backend/
 ├── data/ # Runtime SQLite database files (ignored by git)
 ├── go.mod # Go modules file
@@ -84,9 +84,17 @@ nebula-backend/
     - The server runs on port `:8080` by default (defined in `main.go`).
 
 4.  **Run the Server:**
+
     ```bash
     go run .
     ```
+
+    or
+
+    ```bash
+    air
+    ```
+
     The server should start, initialize the database in the `data/` directory, and listen on port 8080.
 
 ## API Usage / Testing Examples (`curl`)
