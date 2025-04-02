@@ -94,6 +94,42 @@ func PragmaTableInfo(ctx context.Context, userDB *sql.DB, tableName string) (map
 	return columnTypes, nil
 }
 
+// --- *** NEW: List Tables in User DB *** ---
+
+// ListTables retrieves a list of table names from the user's database file.
+func ListTables(ctx context.Context, userDB *sql.DB) ([]string, error) {
+	// Query sqlite_master (or sqlite_schema in newer versions) for tables
+	// Exclude sqlite internal tables
+	query := `SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name;`
+	rows, err := userDB.QueryContext(ctx, query)
+	if err != nil {
+		log.Printf("Storage: Error listing tables: %v", err)
+		return nil, fmt.Errorf("database error listing tables: %w", err)
+	}
+	defer rows.Close()
+
+	var tableNames []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			log.Printf("Storage: Error scanning table name: %v", err)
+			return nil, fmt.Errorf("failed processing table list: %w", err)
+		}
+		tableNames = append(tableNames, name)
+	}
+	if err = rows.Err(); err != nil {
+		log.Printf("Storage: Error iterating table list: %v", err)
+		return nil, fmt.Errorf("failed reading table list: %w", err)
+	}
+
+	if tableNames == nil {
+		tableNames = make([]string, 0)
+	}
+	return tableNames, nil
+}
+
+// --- *** END NEW *** ---
+
 // CreateTable executes a CREATE TABLE statement in the user DB.
 func CreateTable(ctx context.Context, userDB *sql.DB, createSQL string) error {
 	_, err := userDB.ExecContext(ctx, createSQL) // createSQL assumed pre-validated
@@ -136,7 +172,6 @@ func InsertRecord(ctx context.Context, userDB *sql.DB, insertSQL string, values 
 	return lastID, nil
 }
 
-// --- MODIFIED: ListRecords with Strict Filter Key Validation ---
 // Accepts tableName and query parameters directly.
 func ListRecords(ctx context.Context, userDB *sql.DB, tableName string, queryParams url.Values) ([]map[string]any, error) {
 

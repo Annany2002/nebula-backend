@@ -41,8 +41,18 @@ func SetupRouter(metaDB *sql.DB, cfg *config.Config) *gin.Engine {
 	apiRoutes.Use(middleware.AuthMiddleware(cfg))
 	{ /* Routes using dbHandler and recordHandler */
 		apiRoutes.GET("/me", func(c *gin.Context) { /* ... */ })
+
+		// *** NEW: List Databases route ***
+		apiRoutes.GET("/databases", dbHandler.ListDatabases)
+		// *** END NEW ***
 		apiRoutes.POST("/databases", dbHandler.CreateDatabase)
+
 		apiRoutes.POST("/databases/:db_name/schema", dbHandler.CreateSchema)
+
+		// *** NEW: List Tables route ***
+		apiRoutes.GET("/databases/:db_name/tables", dbHandler.ListTables)
+		// *** END NEW ***
+
 		apiRoutes.POST("/databases/:db_name/tables/:table_name/records", recordHandler.CreateRecord)
 		apiRoutes.GET("/databases/:db_name/tables/:table_name/records", recordHandler.ListRecords)
 		apiRoutes.GET("/databases/:db_name/tables/:table_name/records/:record_id", recordHandler.GetRecord)

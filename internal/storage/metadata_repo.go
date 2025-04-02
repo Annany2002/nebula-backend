@@ -96,3 +96,36 @@ func FindDatabasePath(ctx context.Context, db *sql.DB, userID int64, dbName stri
 	}
 	return dbFilePath, nil
 }
+
+// ListUserDatabases retrieves a list of database names registered by a specific user.
+func ListUserDatabases(ctx context.Context, db *sql.DB, userID int64) ([]string, error) {
+	query := `SELECT db_name FROM databases WHERE user_id = ? ORDER BY db_name;`
+	rows, err := db.QueryContext(ctx, query, userID)
+	if err != nil {
+		log.Printf("Storage: Error listing databases for UserID %d: %v", userID, err)
+		return nil, fmt.Errorf("database error listing databases: %w", err)
+	}
+	defer rows.Close()
+
+	var dbNames []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			log.Printf("Storage: Error scanning database name for UserID %d: %v", userID, err)
+			return nil, fmt.Errorf("failed processing database list: %w", err)
+		}
+		dbNames = append(dbNames, name)
+	}
+	if err = rows.Err(); err != nil {
+		log.Printf("Storage: Error iterating database list for UserID %d: %v", userID, err)
+		return nil, fmt.Errorf("failed reading database list: %w", err)
+	}
+
+	// Return empty slice if user has no databases, not an error
+	if dbNames == nil {
+		dbNames = make([]string, 0)
+	}
+	return dbNames, nil
+}
+
+// --- *** END NEW *** ---

@@ -177,3 +177,73 @@ func (h *DatabaseHandler) CreateSchema(c *gin.Context) {
 		"table_name": req.TableName,
 	})
 }
+
+// --- *** NEW: List Databases Handler *** ---
+
+// ListDatabases handles requests to list registered databases for the user.
+func (h *DatabaseHandler) ListDatabases(c *gin.Context) {
+	userID := c.MustGet("userID").(int64) // From AuthMiddleware
+
+	dbNames, err := storage.ListUserDatabases(c.Request.Context(), h.MetaDB, userID)
+	if err != nil {
+		log.Printf("Handler: Error listing databases for UserID %d: %v", userID, err)
+		_ = c.Error(err) // Attach storage error
+		// Let middleware handle response (likely 500)
+		return
+	}
+
+	log.Printf("Handler: Retrieved %d database(s) for UserID %d", len(dbNames), userID)
+	c.JSON(http.StatusOK, gin.H{"databases": dbNames})
+}
+
+// --- *** END NEW *** ---
+
+// --- *** NEW: List Tables Handler *** ---
+
+// ListTables handles requests to list tables within a specific user database.
+func (h *DatabaseHandler) ListTables(c *gin.Context) {
+	// Need to connect to the specific user DB first
+	// Reusing logic similar to RecordHandler's getUserDBConn helper idea
+	userID := c.MustGet("userID").(int64)
+	dbName := c.Param("db_name")
+
+	if !core.IsValidIdentifier(dbName) {
+		err := errors.New("invalid database name in URL path")
+		_ = c.Error(err)
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()}) // Temp direct
+		return
+	}
+
+	// Find path, connect to user DB
+	dbFilePath, err := storage.FindDatabasePath(c.Request.Context(), h.MetaDB, userID, dbName)
+	if err != nil {
+		_ = c.Error(err)
+		if errors.Is(err, storage.ErrDatabaseNotFound) {
+			c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "Database not found or not registered."})
+		} else {
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve database information."})
+		}
+		return
+	}
+	userDB, err := storage.ConnectUserDB(c.Request.Context(), dbFilePath)
+	if err != nil {
+		_ = c.Error(err)
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to access database storage."})
+		return
+	}
+	defer userDB.Close()
+
+	// Call storage function to list tables
+	tableNames, err := storage.ListTables(c.Request.Context(), userDB)
+	if err != nil {
+		log.Printf("Handler: Error listing tables for UserID %d, DB %s: %v", userID, dbName, err)
+		_ = c.Error(err)
+		// Let middleware handle (likely 500)
+		return
+	}
+
+	log.Printf("Handler: Retrieved %d table(s) for UserID %d, DB %s", len(tableNames), userID, dbName)
+	c.JSON(http.StatusOK, gin.H{"tables": tableNames})
+}
+
+// --- *** END NEW ---

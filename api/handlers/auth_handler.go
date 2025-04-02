@@ -93,29 +93,3 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	// ... success response ...
 	c.JSON(http.StatusOK, models.LoginResponse{Message: "Login successful", Token: tokenString})
 }
-
-/*
-user, err := storage.FindUserByEmail(c.Request.Context(), h.DB, req.Email)
-	if err != nil {
-		log.Printf("Login failed for email %s: %v", req.Email, err)
-		_ = c.Error(err) // Attach ErrUserNotFound or DB error
-		return
-	}
-
-	if !auth.CheckPasswordHash(req.Password, user.PasswordHash) {
-		log.Printf("Login attempt failed for email %s: invalid password", user.Email)
-		// *** CHANGED: Use the specific error variable ***
-		_ = c.Error(storage.ErrInvalidCredentials)
-		return // Let middleware handle
-	}
-
-	// ... (generate JWT and return success) ...
-	tokenString, err := auth.GenerateJWT(user.ID, h.Cfg.JWTSecret, h.Cfg.JWTExpiration)
-	if err != nil {
-		log.Printf("Failed to generate JWT for user %d: %v", user.ID, err)
-		_ = c.Error(err) // Attach JWT generation error
-		return
-	}
-    // ... success response ...
-	c.JSON(http.StatusOK, models.LoginResponse{ Message: "Login successful", Token:   tokenString })
-*/
