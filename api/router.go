@@ -16,11 +16,12 @@ func SetupRouter(metaDB *sql.DB, cfg *config.Config) *gin.Engine {
 	// Consider gin.New() for more control over default middleware
 	router := gin.Default() // Includes Logger and Recovery
 
-	// *** NEW: Add ErrorHandler middleware EARLY ***
+	// Setting up a rate-limiter
+	ratelimiter := middleware.NewRateLimiter()
+	router.Use(middleware.RateLimitMiddleware(ratelimiter))
 	// It should run after basic middleware like Logger/Recovery
 	// but before the routing happens, so it wraps the handlers.
 	router.Use(middleware.ErrorHandler())
-	// *** END NEW ***
 
 	// Initialize Handlers
 	authHandler := handlers.NewAuthHandler(metaDB, cfg)
@@ -28,7 +29,7 @@ func SetupRouter(metaDB *sql.DB, cfg *config.Config) *gin.Engine {
 	recordHandler := handlers.NewRecordHandler(metaDB, cfg)
 
 	// --- Public Routes ---
-	router.GET("/ping", func(c *gin.Context) { /* ... */ })
+	router.GET("/ping", func(c *gin.Context) { c.String(200, "Hello World") })
 	authRoutes := router.Group("/auth")
 	{ /* Routes using authHandler */
 		authRoutes.POST("/signup", authHandler.Signup)
@@ -42,15 +43,19 @@ func SetupRouter(metaDB *sql.DB, cfg *config.Config) *gin.Engine {
 	{ /* Routes using dbHandler and recordHandler */
 		apiRoutes.GET("/me", func(c *gin.Context) { /* ... */ })
 
-		// *** NEW: List Databases route ***
 		apiRoutes.GET("/databases", dbHandler.ListDatabases)
-		// *** END NEW ***
 		apiRoutes.POST("/databases", dbHandler.CreateDatabase)
 
 		apiRoutes.POST("/databases/:db_name/schema", dbHandler.CreateSchema)
 
-		// *** NEW: List Tables route ***
 		apiRoutes.GET("/databases/:db_name/tables", dbHandler.ListTables)
+
+		// *** NEW: Delete Table route ***
+		apiRoutes.DELETE("/databases/:db_name/tables/:table_name", dbHandler.DeleteTable)
+		// *** END NEW ***
+
+		// *** NEW: Delete Database route ***
+		apiRoutes.DELETE("/databases/:db_name", dbHandler.DeleteDatabase)
 		// *** END NEW ***
 
 		apiRoutes.POST("/databases/:db_name/tables/:table_name/records", recordHandler.CreateRecord)
