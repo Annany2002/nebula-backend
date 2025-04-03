@@ -50,13 +50,9 @@ func SetupRouter(metaDB *sql.DB, cfg *config.Config) *gin.Engine {
 
 		apiRoutes.GET("/databases/:db_name/tables", dbHandler.ListTables)
 
-		// *** NEW: Delete Table route ***
 		apiRoutes.DELETE("/databases/:db_name/tables/:table_name", dbHandler.DeleteTable)
-		// *** END NEW ***
 
-		// *** NEW: Delete Database route ***
 		apiRoutes.DELETE("/databases/:db_name", dbHandler.DeleteDatabase)
-		// *** END NEW ***
 
 		apiRoutes.POST("/databases/:db_name/tables/:table_name/records", recordHandler.CreateRecord)
 		apiRoutes.GET("/databases/:db_name/tables/:table_name/records", recordHandler.ListRecords)

@@ -1,3 +1,5 @@
+# Air Configuration File for Nebula Backend
+
 root = "."
 testdata_dir = "testdata"
 tmp_dir = "tmp"
@@ -5,30 +7,30 @@ tmp_dir = "tmp"
 [build]
   args_bin = []
   bin = "./tmp/main"
-  cmd = "go build -o ./tmp/main cmd/server/main.go"
+  cmd = "go build -o ./tmp/main cmd/server/main.go && ./tmp/main"
   delay = 1000
-  exclude_dir = ["assets", "tmp", "vendor", "testdata", "data"]
+  exclude_dir = ["assets", "tmp", "vendor", "testdata", "data", "cmd/server/tmp", "cmd/server/data"]
   exclude_file = []
   exclude_regex = ["_test.go"]
   exclude_unchanged = false
   follow_symlink = false
   full_bin = ""
-  include_dir = []
-  include_ext = ["go", "tpl", "tmpl", "html"]
+  include_dir = ["api", "cmd", "config", "internal"]
+  include_ext = ["go", "tpl", "tmpl", "html", "toml", "yaml", "json", "env"]
   include_file = []
-  kill_delay = "0s"
+  kill_delay = "1s"
   log = "build-errors.log"
   poll = false
   poll_interval = 0
   post_cmd = []
   pre_cmd = []
-  rerun = false
+  rerun = true
   rerun_delay = 500
-  send_interrupt = false
-  stop_on_error = false
+  send_interrupt = true
+  stop_on_error = true
 
 [color]
-  main = "\x1b[34;1m" # Blue and bold
+  main = "\x1b[34;1m"   # Blue and bold
   watcher = "\x1b[32m"  # Green
   build = "\x1b[33m"    # Yellow
   runner = "\x1b[35m"   # Magenta
@@ -48,5 +50,5 @@ tmp_dir = "tmp"
   proxy_port = 0
 
 [screen]
-  clear_on_rebuild = false
-  keep_scroll = true
+  clear_on_rebuild = true
+  keep_scroll = false
