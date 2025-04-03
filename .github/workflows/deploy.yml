@@ -1,0 +1,70 @@
+name: Deploy Nebula Backend
+
+on:
+  push:
+    branches: [ main ] # Trigger on push to main branch
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest # Runner environment
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.24.1' # Specify your Go version
+
+    - name: Verify dependencies
+      run: go mod tidy
+      # Optional: go mod download
+
+    - name: Run Tests # Important! Don't deploy if tests fail
+      run: go test ./...
+
+    - name: Build Application
+      # Build for Linux AMD64 (common EC2 architecture)
+      run: GOOS=linux GOARCH=amd64 go build -o nebula-backend-server ./cmd/server/main.go
+
+    - name: Deploy to EC2
+      uses: appleboy/ssh-action@v1.0.3 # Example using a popular SSH action
+      with:
+        host: ${{ secrets.EC2_HOST }} # Use GitHub Secrets for sensitive info
+        username: ${{ secrets.EC2_USERNAME }}
+        key: ${{ secrets.EC2_SSH_KEY }}
+        script: | # Commands to run on the EC2 instance
+          set -e
+          # Define project dir on server
+          PROJECT_DIR="/home/ubuntu/nebula-backend" # Or secrets.EC2_PROJECT_DIR
+          BINARY_NAME="nebula-backend-server"
+          SERVICE_NAME="nebula.service"
+
+          echo "--- Stopping service ---" # Optional: Stop before copy
+          sudo systemctl stop $SERVICE_NAME || echo "Service not running or failed to stop (continuing deployment)"
+
+          echo "--- Copying new binary ---"
+          # This action copies files specified in 'source' relative to Actions runner workspace
+          # to 'target' directory on EC2 host.
+          # We need to copy the built binary 'nebula-backend-server'.
+          # Using scp via ssh-action requires specifying source/target differently or using scp directly.
+          # Let's assume we just run git pull and build on the server for simplicity here,
+          # similar to manual steps, but triggered automatically.
+
+          echo "--- Navigating to project directory ---"
+          cd $PROJECT_DIR || exit 1
+
+          echo "--- Pulling latest code ---"
+          git checkout main # Or use github.ref_name
+          git pull origin main # Or use github.ref_name
+
+          # Optional: go mod tidy
+
+          echo "--- Building application ---"
+          go build -o $BINARY_NAME ./cmd/server/main.go
+
+          echo "--- Restarting service ---"
+          sudo systemctl restart $SERVICE_NAME
+
+          echo "--- Deployment finished ---"
