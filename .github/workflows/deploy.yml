@@ -26,7 +26,12 @@ jobs:
       - name: Debug SSH Connection
         run: |
           echo "Testing SSH connection to EC2 instance..."
-          ssh -o StrictHostKeyChecking=no -i ${{ secrets.EC2_SSH_PRIVATE_KEY }} ubuntu@${{ secrets.EC2_HOST }} echo "SSH connection successful"
+          echo "${{ secrets.EC2_SSH_PRIVATE_KEY }}" > private_key.pem
+          chmod 600 private_key.pem
+          ssh -o StrictHostKeyChecking=no -i private_key.pem ubuntu@${{ secrets.EC2_HOST }} echo "SSH connection successful"
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_SSH_PRIVATE_KEY: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
 
       - name: Deploy to EC2
         uses: appleboy/ssh-action@v1.0.3
