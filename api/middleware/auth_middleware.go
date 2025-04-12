@@ -3,7 +3,6 @@ package middleware
 
 import (
 	"errors"
-	"log"
 	"net/http"
 	"strings"
 
@@ -35,10 +34,10 @@ func AuthMiddleware(cfg *config.Config) gin.HandlerFunc {
 		tokenString := parts[1]
 
 		// Validate JWT using the internal auth function
-		userID, err := auth.ValidateJWT(tokenString, cfg.JWTSecret)
+		userId, err := auth.ValidateJWT(tokenString, cfg.JWTSecret)
 
 		if err != nil {
-			log.Printf("AuthMiddleware: Token validation failed: %v", err)
+			customLog.Printf("AuthMiddleware: Token validation failed: %v", err)
 			// Map internal auth errors to HTTP status (will be improved by error mw)
 			var statusCode = http.StatusUnauthorized
 			var errMsg = "Invalid token"
@@ -54,8 +53,8 @@ func AuthMiddleware(cfg *config.Config) gin.HandlerFunc {
 		}
 
 		// Token is valid! Set the userID in the context
-		log.Printf("AuthMiddleware: Token validated successfully for UserID: %d", userID)
-		c.Set("userID", userID) // Use consistent key
+		customLog.Printf("AuthMiddleware: Token validated successfully for UserID: %s", userId)
+		c.Set("userId", userId) // Use consistent key
 
 		c.Next() // Continue to the next handler
 	}

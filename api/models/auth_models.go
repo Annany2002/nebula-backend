@@ -1,13 +1,17 @@
 // api/models/auth_models.go
 package models
 
-import "github.com/golang-jwt/jwt/v5"
+import (
+	"github.com/Annany2002/nebula-backend/internal/domain"
+	"github.com/golang-jwt/jwt/v5"
+)
 
 // --- Auth Request/Response Structs ---
 
 // SignupRequest defines the structure for the signup request body
 type SignupRequest struct {
 	Email    string `json:"email" binding:"required,email"`
+	Username string `json:"username" binding:"required,min=6"`
 	Password string `json:"password" binding:"required,min=8"`
 }
 
@@ -19,14 +23,20 @@ type LoginRequest struct {
 
 // LoginResponse defines the structure for the login response body
 type LoginResponse struct {
-	Message string `json:"message"`
-	Token   string `json:"token"`
+	Message string              `json:"message"`
+	User    domain.UserMetadata `json:"user"`
+	Token   string              `json:"token"`
+}
+
+// GetUser defines the structure for the get user by user_id body
+type GetUser struct {
+	Token string `json:"token"`
 }
 
 // --- JWT Claims ---
 
 // CustomClaims includes standard claims and our custom userID claim for JWT
 type CustomClaims struct {
-	UserID int64 `json:"userID"`
+	UserID string `json:"userId"`
 	jwt.RegisteredClaims
 }

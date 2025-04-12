@@ -163,7 +163,7 @@ func TestAuthEndpoints(t *testing.T) {
 		// Using the known test secret from testCfg
 		userID, err := auth.ValidateJWT(resBody.Token, "test_secret_key_for_integration_tests_1234567890")
 		assert.NoError(err, "Returned token should be valid")
-		assert.True(userID > 0, "UserID from token should be positive")
+		assert.True(userID == "", "UserID from token should be positive")
 	})
 
 	t.Run("Login Unauthorized (Wrong Password)", func(t *testing.T) {

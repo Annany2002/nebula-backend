@@ -6,12 +6,12 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"log"
 	"net/url"
 	"strconv"
 	"strings"
 
 	"github.com/Annany2002/nebula-backend/internal/core" // Import core for validation
+	"github.com/Annany2002/nebula-backend/internal/domain"
 	"github.com/mattn/go-sqlite3"
 )
 
@@ -30,18 +30,18 @@ var (
 // ConnectUserDB opens and pings a connection to a specific user DB file.
 // The caller is responsible for closing the connection.
 func ConnectUserDB(ctx context.Context, filePath string) (*sql.DB, error) {
-	log.Printf("Storage: Opening user DB: %s", filePath)
-	// Ensure foreign keys and consider WAL mode for better concurrency if needed
-	userDB, err := sql.Open("sqlite3", filePath+"?_foreign_keys=on")
+	customLog.Printf("Storage: Opening user DB: %s", filePath)
+	// Ensured foreign keys, WAL mode and busy timeout for better concurrency
+	userDb, err := sql.Open("sqlite3", filePath+"?_foreign_keys=on&_journal_mode=WAL&_busy_timeout=5000")
 	if err != nil {
-		log.Printf("Storage: Failed to open user DB file '%s': %v", filePath, err)
+		customLog.Warnf("Storage: Failed to open user DB file '%s': %v", filePath, err)
 		return nil, fmt.Errorf("failed to access user database storage: %w", err)
 	}
 
 	// Ping to verify connection
-	if err = userDB.PingContext(ctx); err != nil {
-		userDB.Close() // Close if ping fails
-		log.Printf("Storage: Failed to ping user DB '%s': %v", filePath, err)
+	if err = userDb.PingContext(ctx); err != nil {
+		userDb.Close() // Close if ping fails
+		customLog.Warnf("Storage: Failed to ping user DB '%s': %v", filePath, err)
 		return nil, fmt.Errorf("failed to connect to user database storage: %w", err)
 	}
 
@@ -49,7 +49,7 @@ func ConnectUserDB(ctx context.Context, filePath string) (*sql.DB, error) {
 	// userDB.SetMaxOpenConns(5)
 	// userDB.SetMaxIdleConns(1)
 
-	return userDB, nil
+	return userDb, nil
 }
 
 // --- User DB Schema Operations ---
@@ -59,7 +59,7 @@ func PragmaTableInfo(ctx context.Context, userDB *sql.DB, tableName string) (map
 	pragmaSQL := fmt.Sprintf("PRAGMA table_info(%s);", tableName) // Assumes tableName is pre-validated
 	rows, err := userDB.QueryContext(ctx, pragmaSQL)
 	if err != nil {
-		log.Printf("Storage: Failed PRAGMA for Table '%s': %v", tableName, err)
+		customLog.Warnf("Storage: Failed PRAGMA for Table '%s': %v", tableName, err)
 		// Check if error indicates table not found
 		if strings.Contains(err.Error(), "no such table") { // Brittle check
 			return nil, ErrTableNotFound
@@ -78,14 +78,15 @@ func PragmaTableInfo(ctx context.Context, userDB *sql.DB, tableName string) (map
 		var notnull int
 		var dfltValue sql.NullString
 		var pk int
+
 		if err := rows.Scan(&cid, &name, &sqlType, &notnull, &dfltValue, &pk); err != nil {
-			log.Printf("Storage: Failed scanning PRAGMA for Table '%s': %v", tableName, err)
+			customLog.Warnf("Storage: Failed scanning PRAGMA for Table '%s': %v", tableName, err)
 			return nil, fmt.Errorf("failed to parse schema: %w", err)
 		}
 		columnTypes[strings.ToLower(name)] = strings.ToUpper(sqlType)
 	}
 	if err = rows.Err(); err != nil {
-		log.Printf("Storage: Error iterating PRAGMA for Table '%s': %v", tableName, err)
+		customLog.Warnf("Storage: Error iterating PRAGMA for Table '%s': %v", tableName, err)
 		return nil, fmt.Errorf("failed to read schema: %w", err)
 	}
 	if !foundColumns {
@@ -95,49 +96,58 @@ func PragmaTableInfo(ctx context.Context, userDB *sql.DB, tableName string) (map
 }
 
 // ListTables retrieves a list of table names from the user's database file.
-func ListTables(ctx context.Context, userDB *sql.DB) ([]string, error) {
+func ListTables(ctx context.Context, userDB *sql.DB) ([]domain.TableMetadata, error) {
 	// Query sqlite_master (or sqlite_schema in newer versions) for tables
 	// Exclude sqlite internal tables
-	query := `SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name;`
+	query := `SELECT * FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name;`
+
 	rows, err := userDB.QueryContext(ctx, query)
+
 	if err != nil {
-		log.Printf("Storage: Error listing tables: %v", err)
+		customLog.Warnf("Storage: Error listing tables: %v", err)
 		return nil, fmt.Errorf("database error listing tables: %w", err)
 	}
 	defer rows.Close()
 
-	var tableNames []string
+	var tables []domain.TableMetadata
+
 	for rows.Next() {
-		var name string
-		if err := rows.Scan(&name); err != nil {
-			log.Printf("Storage: Error scanning table name: %v", err)
+		var table domain.TableMetadata
+
+		if err := rows.Scan(&table.Type, &table.Name, &table.TableName, &table.RootPage, &table.Sql); err != nil {
+			customLog.Warnf("Storage: Error scanning table name: %v", err)
 			return nil, fmt.Errorf("failed processing table list: %w", err)
 		}
-		tableNames = append(tableNames, name)
+		// Get column information for the current table.
+		columnInfos, err := getColumnInfo(ctx, userDB, table.Name)
+		if err != nil {
+			return nil, err // Return the error from getColumnInfo
+		}
+		table.Columns = columnInfos
+
+		tables = append(tables, table)
 	}
 	if err = rows.Err(); err != nil {
-		log.Printf("Storage: Error iterating table list: %v", err)
+		customLog.Warnf("Storage: Error iterating table list: %v", err)
 		return nil, fmt.Errorf("failed reading table list: %w", err)
 	}
 
-	if tableNames == nil {
-		tableNames = make([]string, 0)
+	if tables == nil {
+		tables = make([]domain.TableMetadata, 0)
 	}
-	return tableNames, nil
+	return tables, nil
 }
 
 // CreateTable executes a CREATE TABLE statement in the user DB.
 func CreateTable(ctx context.Context, userDB *sql.DB, createSQL string) error {
 	_, err := userDB.ExecContext(ctx, createSQL) // createSQL assumed pre-validated
 	if err != nil {
-		log.Printf("Storage: Failed to execute CREATE TABLE: %v\nSQL: %s", err, createSQL)
+		customLog.Warnf("Storage: Failed to execute CREATE TABLE: %v\nSQL: %s", err, createSQL)
 		// Could try to parse error for specific issues (e.g., table exists if not using IF NOT EXISTS)
 		return fmt.Errorf("failed to create table: %w", err)
 	}
 	return nil
 }
-
-// --- *** NEW: Drop Table in User DB *** ---
 
 // DropTable executes a DROP TABLE statement in the user DB.
 // tableName should be pre-validated by the caller.
@@ -145,15 +155,49 @@ func DropTable(ctx context.Context, userDB *sql.DB, tableName string) error {
 	// Use IF EXISTS to prevent error if table doesn't exist (makes operation idempotent)
 	dropSQL := fmt.Sprintf("DROP TABLE IF EXISTS %s;", tableName) // tableName is assumed validated
 	_, err := userDB.ExecContext(ctx, dropSQL)
+
 	if err != nil {
 		// This could indicate a more serious issue (permissions, locked db, etc.)
-		log.Printf("Storage: Failed DROP TABLE for Table '%s': %v", tableName, err)
+		customLog.Warnf("Storage: Failed DROP TABLE for Table '%s': %v", tableName, err)
 		return fmt.Errorf("database error dropping table: %w", err)
 	}
 	return nil
 }
 
-// --- *** END NEW *** ---
+func ListUserTableSchema(ctx context.Context, userDB *sql.DB, tableName string) ([]domain.TableSchemaMetaData, error) {
+	row := userDB.QueryRow("SELECT sql FROM sqlite_master WHERE type='table' AND name=?", tableName)
+	var schema string
+
+	err := row.Scan(&schema)
+	if err != nil {
+		return nil, err
+	}
+
+	// This splits the schema at the commas, and then attempts to extract the relevant parts.
+	var columns []domain.TableSchemaMetaData
+	parts := schema[strings.IndexByte(schema, '(')+1 : strings.LastIndexByte(schema, ')')]
+	columnDefs := strings.SplitSeq(parts, ",")
+
+	for colDef := range columnDefs {
+		colDef = strings.TrimSpace(colDef)
+		fields := strings.Fields(colDef)
+
+		if len(fields) < 2 {
+			continue // Skip invalid column definitions.
+		}
+
+		colInfo := domain.TableSchemaMetaData{
+			Name: fields[0],
+			Type: fields[1],
+		}
+		if len(fields) > 2 && fields[2] == "PRIMARY" {
+			colInfo.PrimaryKey = true
+		}
+		columns = append(columns, colInfo)
+	}
+
+	return columns, nil
+}
 
 // --- User DB Record CRUD Operations ---
 
@@ -161,7 +205,7 @@ func DropTable(ctx context.Context, userDB *sql.DB, tableName string) error {
 func InsertRecord(ctx context.Context, userDB *sql.DB, insertSQL string, values ...interface{}) (int64, error) {
 	result, err := userDB.ExecContext(ctx, insertSQL, values...)
 	if err != nil {
-		log.Printf("Storage: Failed INSERT: %v\nSQL: %s", err, insertSQL)
+		customLog.Warnf("Storage: Failed INSERT: %v\nSQL: %s", err, insertSQL)
 		// Map common SQLite errors to specific storage errors
 		if strings.Contains(err.Error(), "no such table") {
 			return 0, ErrTableNotFound
@@ -180,7 +224,7 @@ func InsertRecord(ctx context.Context, userDB *sql.DB, insertSQL string, values 
 	}
 	lastID, err := result.LastInsertId()
 	if err != nil {
-		log.Printf("Storage: Failed to get LastInsertId after INSERT: %v", err)
+		customLog.Warnf("Storage: Failed to get LastInsertId after INSERT: %v", err)
 		return 0, fmt.Errorf("failed to retrieve ID after insert: %w", err)
 	}
 	return lastID, nil
@@ -208,7 +252,7 @@ func ListRecords(ctx context.Context, userDB *sql.DB, tableName string, queryPar
 
 		// A. Validate filter key format
 		if !core.IsValidIdentifier(key) {
-			log.Printf("Storage: ListRecords received invalid filter key format: %s", key)
+			customLog.Warnf("Storage: ListRecords received invalid filter key format: %s", key)
 			// *** CHANGED: Return error instead of ignoring ***
 			return nil, fmt.Errorf("%w: invalid filter key format '%s'", ErrInvalidFilterValue, key)
 		}
@@ -216,7 +260,7 @@ func ListRecords(ctx context.Context, userDB *sql.DB, tableName string, queryPar
 		// B. Validate filter key exists in schema
 		expectedType, exists := columnTypes[lowerKey]
 		if !exists {
-			log.Printf("Storage: ListRecords received filter key not in schema: %s", key)
+			customLog.Warnf("Storage: ListRecords received filter key not in schema: %s", key)
 			// *** CHANGED: Return error instead of ignoring ***
 			return nil, fmt.Errorf("%w: filter key '%s' not found in table schema", ErrInvalidFilterValue, key)
 		}
@@ -249,15 +293,15 @@ func ListRecords(ctx context.Context, userDB *sql.DB, tableName string, queryPar
 			convertedValue = filterValueStr // Keep as string
 		case "BLOB":
 			// Cannot reliably filter BLOBs with simple equality from URL param
-			log.Printf("Storage: ListRecords ignoring filter on BLOB column: %s", key)
+			customLog.Printf("Storage: ListRecords ignoring filter on BLOB column: %s", key)
 			continue // Skip BLOB filtering
 		default:
-			log.Printf("Storage: ListRecords ignoring filter on column '%s' with unhandled type '%s'", key, expectedType)
+			customLog.Printf("Storage: ListRecords ignoring filter on column '%s' with unhandled type '%s'", key, expectedType)
 			continue // Skip unknown types
 		}
 
 		if conversionError != nil {
-			log.Printf("Storage: ListRecords conversion error for key '%s', value '%s': %v", key, filterValueStr, conversionError)
+			customLog.Printf("Storage: ListRecords conversion error for key '%s', value '%s': %v", key, filterValueStr, conversionError)
 			return nil, fmt.Errorf("%w: %s", ErrInvalidFilterValue, conversionError.Error()) // Return specific error
 		}
 
@@ -275,12 +319,12 @@ func ListRecords(ctx context.Context, userDB *sql.DB, tableName string, queryPar
 	}
 	selectSQL += ";" // End statement
 
-	log.Printf("Storage: Executing List Records SQL: %s | Args: %v", selectSQL, args)
+	customLog.Printf("Storage: Executing List Records SQL: %s | Args: %v", selectSQL, args)
 
 	// 4. Execute query
 	rows, err := userDB.QueryContext(ctx, selectSQL, args...)
 	if err != nil {
-		log.Printf("Storage: Failed filtered SELECT *: %v\nSQL: %s", err, selectSQL)
+		customLog.Warnf("Storage: Failed filtered SELECT *: %v\nSQL: %s", err, selectSQL)
 		// No need to check "no such table" here, PragmaTableInfo already did
 		return nil, fmt.Errorf("database error listing records: %w", err)
 	}
@@ -326,7 +370,7 @@ func ListRecords(ctx context.Context, userDB *sql.DB, tableName string, queryPar
 func GetRecord(ctx context.Context, userDB *sql.DB, selectSQL string, recordID int64) (map[string]interface{}, error) {
 	rows, err := userDB.QueryContext(ctx, selectSQL, recordID) // selectSQL assumed safe with placeholder
 	if err != nil {
-		log.Printf("Storage: Failed SELECT by ID: %v\nSQL: %s", err, selectSQL)
+		customLog.Warnf("Storage: Failed SELECT by ID: %v\nSQL: %s", err, selectSQL)
 		if strings.Contains(err.Error(), "no such table") {
 			return nil, ErrTableNotFound
 		}
@@ -354,7 +398,7 @@ func GetRecord(ctx context.Context, userDB *sql.DB, selectSQL string, recordID i
 	}
 
 	if err := rows.Scan(scanArgs...); err != nil {
-		log.Printf("Storage: Failed scanning row for SELECT by ID: %v", err)
+		customLog.Warnf("Storage: Failed scanning row for SELECT by ID: %v", err)
 		return nil, fmt.Errorf("failed reading record data: %w", err)
 	}
 
@@ -370,7 +414,9 @@ func GetRecord(ctx context.Context, userDB *sql.DB, selectSQL string, recordID i
 	}
 
 	// Ensure no more rows (optional check)
-	// if rows.Next() { log.Printf("WARN: Found multiple rows for ID %d", recordID) }
+	if rows.Next() {
+		customLog.Warnf("WARN: Found multiple rows for ID %d", recordID)
+	}
 
 	return rowData, nil
 }
@@ -379,7 +425,7 @@ func GetRecord(ctx context.Context, userDB *sql.DB, selectSQL string, recordID i
 func UpdateRecord(ctx context.Context, userDB *sql.DB, updateSQL string, values ...interface{}) (int64, error) {
 	result, err := userDB.ExecContext(ctx, updateSQL, values...)
 	if err != nil {
-		log.Printf("Storage: Failed UPDATE: %v\nSQL: %s", err, updateSQL)
+		customLog.Warnf("Storage: Failed UPDATE: %v\nSQL: %s", err, updateSQL)
 		if strings.Contains(err.Error(), "no such table") {
 			return 0, ErrTableNotFound
 		}
@@ -397,7 +443,7 @@ func UpdateRecord(ctx context.Context, userDB *sql.DB, updateSQL string, values 
 	}
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
-		log.Printf("Storage: Failed getting RowsAffected after UPDATE: %v", err)
+		customLog.Warnf("Storage: Failed getting RowsAffected after UPDATE: %v", err)
 		return 0, fmt.Errorf("failed confirming update: %w", err)
 	}
 	if rowsAffected == 0 {
@@ -410,17 +456,44 @@ func UpdateRecord(ctx context.Context, userDB *sql.DB, updateSQL string, values 
 func DeleteRecord(ctx context.Context, userDB *sql.DB, deleteSQL string, recordID int64) (int64, error) {
 	result, err := userDB.ExecContext(ctx, deleteSQL, recordID) // deleteSQL assumed safe with placeholder
 	if err != nil {
-		log.Printf("Storage: Failed DELETE: %v\nSQL: %s", err, deleteSQL)
+		customLog.Warnf("Storage: Failed DELETE: %v\nSQL: %s", err, deleteSQL)
 		// Less likely to get specific errors here, maybe just connection issues
 		return 0, fmt.Errorf("database error during delete: %w", err)
 	}
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
-		log.Printf("Storage: Failed getting RowsAffected after DELETE: %v", err)
+		customLog.Warnf("Storage: Failed getting RowsAffected after DELETE: %v", err)
 		return 0, fmt.Errorf("failed confirming delete: %w", err)
 	}
 	if rowsAffected == 0 {
 		return 0, ErrRecordNotFound // No rows matched the WHERE clause
 	}
 	return rowsAffected, nil
+}
+
+// helper function to get column information
+func getColumnInfo(ctx context.Context, userDb *sql.DB, tableName string) ([]domain.ColumnInfo, error) {
+	query := fmt.Sprintf("PRAGMA table_info(%s)", tableName)
+	rows, err := userDb.QueryContext(ctx, query)
+	if err != nil {
+		customLog.Warnf("Storage: Error getting column info for table %s: %v", tableName, err)
+		return nil, fmt.Errorf("database error getting column info: %w", err)
+	}
+	defer rows.Close()
+
+	var columnInfos []domain.ColumnInfo
+	for rows.Next() {
+		var colInfo domain.ColumnInfo
+		if err := rows.Scan(&colInfo.ColumnId, &colInfo.Name, &colInfo.Type, &colInfo.NotNull, &colInfo.Default, &colInfo.PK); err != nil {
+			customLog.Warnf("Storage: Error scanning column info: %v", err)
+			return nil, fmt.Errorf("failed processing column info: %w", err)
+		}
+		columnInfos = append(columnInfos, colInfo)
+	}
+	if err = rows.Err(); err != nil {
+		customLog.Warnf("Storage: Error iterating column info: %v", err)
+		return nil, fmt.Errorf("failed reading column info: %w", err)
+	}
+
+	return columnInfos, nil
 }

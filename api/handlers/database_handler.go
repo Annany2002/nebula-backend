@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -36,7 +35,7 @@ func NewDatabaseHandler(metaDB *sql.DB, cfg *config.Config) *DatabaseHandler {
 
 // CreateDatabase handles requests to register a new user database.
 func (h *DatabaseHandler) CreateDatabase(c *gin.Context) {
-	userID := c.MustGet("userID").(int64) // From AuthMiddleware
+	userId := c.MustGet("userId").(string) // From AuthMiddleware
 
 	var req models.CreateDatabaseRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -52,20 +51,20 @@ func (h *DatabaseHandler) CreateDatabase(c *gin.Context) {
 	}
 
 	// Construct file path
-	userDbDir := filepath.Join(h.Cfg.MetadataDbDir, fmt.Sprintf("%d", userID))
+	userDbDir := filepath.Join(h.Cfg.MetadataDbDir, fmt.Sprintf("%s", userId))
 	dbFilePath := filepath.Join(userDbDir, req.DBName+".db")
 
 	// Ensure user directory exists (moved from handler to make it more reusable?)
 	// Or keep it here as it's tied to the registration action. Let's keep it here.
 	if err := os.MkdirAll(userDbDir, 0750); err != nil {
-		log.Printf("Create DB: Error creating user DB directory '%s': %v", userDbDir, err)
+		customLog.Warnf("Create DB: Error creating user DB directory '%s': %v", userDbDir, err)
 		_ = c.Error(fmt.Errorf("storage setup error: %w", err))
 		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to create database storage location"})
 		return
 	}
 
 	// Register in metadata DB using storage function
-	err := storage.RegisterDatabase(c.Request.Context(), h.MetaDB, userID, req.DBName, dbFilePath)
+	err := storage.RegisterDatabase(c.Request.Context(), h.MetaDB, userId, req.DBName, dbFilePath)
 	if err != nil {
 		_ = c.Error(err) // Pass storage error to context
 		if errors.Is(err, storage.ErrDatabaseExists) {
@@ -76,16 +75,96 @@ func (h *DatabaseHandler) CreateDatabase(c *gin.Context) {
 		return
 	}
 
-	log.Printf("Handler: Successfully registered database '%s' for UserID %d", req.DBName, userID)
+	customLog.Printf("Handler: Successfully registered database '%s' for UserID %s", req.DBName, userId)
 	c.JSON(http.StatusCreated, gin.H{
 		"message": "Database registered successfully",
 		"db_name": req.DBName,
 	})
 }
 
+// ListDatabases handles requests to list registered databases for the user.
+func (h *DatabaseHandler) ListDatabases(c *gin.Context) {
+	userId := c.MustGet("userId").(string) // From AuthMiddleware
+
+	userDb, err := storage.ListUserDatabases(c.Request.Context(), h.MetaDB, userId)
+	if err != nil {
+		customLog.Warnf("Handler: Error listing databases for UserID %s: %v", userId, err)
+		_ = c.Error(err) // Attach storage error
+		// Let middleware handle response (likely 500)
+		return
+	}
+
+	customLog.Printf("Handler: Retrieved %d database(s) for UserID %s", len(userDb), userId)
+	c.JSON(http.StatusOK, gin.H{"databases": userDb})
+}
+
+// DeleteDatabase handles requests to delete a database registration and its file.
+func (h *DatabaseHandler) DeleteDatabase(c *gin.Context) {
+	userId := c.MustGet("userId").(string)
+	dbName := c.Param("db_name")
+
+	if !core.IsValidIdentifier(dbName) {
+		err := errors.New("invalid database name in URL path")
+		_ = c.Error(err)
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()}) // Temp direct response
+		return
+	}
+
+	// 1. Find the file path *before* deleting the registration
+	dbFilePath, err := storage.FindDatabasePath(c.Request.Context(), h.MetaDB, userId, dbName)
+	if err != nil {
+		_ = c.Error(err)
+		if errors.Is(err, storage.ErrDatabaseNotFound) {
+			c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "Database not found or not registered."})
+		} else {
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve database information."})
+		}
+		return
+	}
+
+	// 2. Delete the registration entry from metadata.db
+	customLog.Printf("Handler: Attempting to delete registration for DB '%s', UserID %s", dbName, userId)
+	err = storage.DeleteDatabaseRegistration(c.Request.Context(), h.MetaDB, userId, dbName)
+	if err != nil {
+		_ = c.Error(err)
+		// ErrDatabaseNotFound here means it was already gone somehow, treat as success? Or specific conflict?
+		// Let's treat not found as success (idempotent), other errors as 500.
+		if !errors.Is(err, storage.ErrDatabaseNotFound) {
+			customLog.Warnf("Handler: Failed to delete DB registration for UserID %s, DB '%s': %v", userId, dbName, err)
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete database registration."})
+			return
+		}
+		// If ErrDatabaseNotFound, log it but proceed to file deletion attempt anyway
+		customLog.Printf("Handler: DB registration for UserID %s, DB '%s' was already deleted or not found, proceeding to file check.", userId, dbName)
+	}
+
+	// 3. Attempt to delete the associated database file
+	// This is best-effort. Log errors but return success if registration was deleted.
+	customLog.Printf("Handler: Attempting to delete database file: %s", dbFilePath)
+	err = os.Remove(dbFilePath)
+	if err != nil {
+		// Log error but don't fail the request if registration was deleted
+		// Ignore "not found" errors for the file itself (idempotency)
+		if !errors.Is(err, os.ErrNotExist) {
+			customLog.Warnf("Handler: WARN - Failed to delete database file '%s' for UserID %s, DB '%s': %v", dbFilePath, userId, dbName, err)
+			// You could potentially schedule a retry or flag for cleanup later
+		} else {
+			customLog.Warnf("Handler: Database file '%s' already deleted or did not exist.", dbFilePath)
+		}
+	} else {
+		customLog.Printf("Handler: Successfully deleted database file '%s'", dbFilePath)
+		// Optional: Try to remove the parent directory if empty, but adds complexity/risk
+		// userDbDir := filepath.Dir(dbFilePath)
+		// if entries, _ := os.ReadDir(userDbDir); len(entries) == 0 { os.Remove(userDbDir) }
+	}
+
+	customLog.Printf("Handler: Completed delete request for DB '%s', UserID %s", dbName, userId)
+	c.Status(http.StatusNoContent) // Return 204 No Content on success
+}
+
 // CreateSchema handles requests to define a table schema.
 func (h *DatabaseHandler) CreateSchema(c *gin.Context) {
-	userID := c.MustGet("userID").(int64)
+	userId := c.MustGet("userId").(string)
 	dbName := c.Param("db_name")
 
 	if !core.IsValidIdentifier(dbName) {
@@ -95,7 +174,7 @@ func (h *DatabaseHandler) CreateSchema(c *gin.Context) {
 	}
 
 	// Look up path via storage function
-	dbFilePath, err := storage.FindDatabasePath(c.Request.Context(), h.MetaDB, userID, dbName)
+	dbFilePath, err := storage.FindDatabasePath(c.Request.Context(), h.MetaDB, userId, dbName)
 	if err != nil {
 		_ = c.Error(err)
 		if errors.Is(err, storage.ErrDatabaseNotFound) {
@@ -121,6 +200,7 @@ func (h *DatabaseHandler) CreateSchema(c *gin.Context) {
 
 	var columnDefs []string
 	columnNames := make(map[string]bool) // Check for duplicate column names
+
 	for _, col := range req.Columns {
 		colNameLower := strings.ToLower(col.Name)
 		if !core.IsValidIdentifier(col.Name) || colNameLower == "id" {
@@ -155,11 +235,11 @@ func (h *DatabaseHandler) CreateSchema(c *gin.Context) {
 
 	// Construct CREATE TABLE SQL
 	// Use validated table name and column definitions
-	createTableSQL := fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (id INTEGER PRIMARY KEY AUTOINCREMENT, %s);",
+	createTableSQL := fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (id INTEGER PRIMARY KEY AUTOINCREMENT, %s , created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);",
 		req.TableName, // Already validated
 		strings.Join(columnDefs, ", "),
 	)
-	log.Printf("Handler: Executing Schema SQL for UserID %d, DB '%s': %s", userID, dbName, createTableSQL)
+	customLog.Printf("Handler: Executing Schema SQL for UserID %s, DB '%s': %s", userId, dbName, createTableSQL)
 
 	// Execute via storage function
 	err = storage.CreateTable(c.Request.Context(), userDB, createTableSQL)
@@ -170,7 +250,7 @@ func (h *DatabaseHandler) CreateSchema(c *gin.Context) {
 		return
 	}
 
-	log.Printf("Handler: Successfully ensured table '%s' in DB '%s' for UserID %d", req.TableName, dbName, userID)
+	customLog.Printf("Handler: Successfully ensured table '%s' in DB '%s' for UserID %s", req.TableName, dbName, userId)
 	c.JSON(http.StatusCreated, gin.H{
 		"message":    fmt.Sprintf("Table '%s' created or already exists.", req.TableName),
 		"db_name":    dbName,
@@ -178,183 +258,95 @@ func (h *DatabaseHandler) CreateSchema(c *gin.Context) {
 	})
 }
 
-// ListDatabases handles requests to list registered databases for the user.
-func (h *DatabaseHandler) ListDatabases(c *gin.Context) {
-	userID := c.MustGet("userID").(int64) // From AuthMiddleware
+func (h *DatabaseHandler) GetSchema(c *gin.Context) {
+	userId := c.MustGet("userId").(string)
+	dbName := c.Param("db_name")
+	tableName := c.Param("table_name")
 
-	dbNames, err := storage.ListUserDatabases(c.Request.Context(), h.MetaDB, userID)
-	if err != nil {
-		log.Printf("Handler: Error listing databases for UserID %d: %v", userID, err)
-		_ = c.Error(err) // Attach storage error
-		// Let middleware handle response (likely 500)
+	if !core.IsValidIdentifier(dbName) {
+		_ = c.Error(errors.New("invalid db_name in path"))
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid database name in URL path."})
 		return
 	}
 
-	log.Printf("Handler: Retrieved %d database(s) for UserID %d", len(dbNames), userID)
-	c.JSON(http.StatusOK, gin.H{"databases": dbNames})
+	// Look up path via storage function
+	dbFilePath, err := storage.FindDatabasePath(c.Request.Context(), h.MetaDB, userId, dbName)
+	if err != nil {
+		_ = c.Error(err)
+		if errors.Is(err, storage.ErrDatabaseNotFound) {
+			c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "Database not found or not registered."})
+		} else {
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve database information."})
+		}
+		return
+	}
+
+	// Connect to the user's DB file
+	userDB, err := storage.ConnectUserDB(c.Request.Context(), dbFilePath)
+	if err != nil {
+		c.AbortWithError(http.StatusInternalServerError, err)
+	}
+
+	defer userDB.Close()
+	tableSchema, err := storage.ListUserTableSchema(c.Request.Context(), userDB, tableName)
+
+	if err != nil {
+		c.AbortWithStatusJSON(404, gin.H{"error": fmt.Sprintf("Table %s within %s database not found", tableName, dbName)})
+		return
+	}
+
+	c.JSON(200, gin.H{"schema": tableSchema})
 }
 
-// ListTables handles requests to list tables within a specific user database.
-func (h *DatabaseHandler) ListTables(c *gin.Context) {
-	// Need to connect to the specific user DB first
-	// Reusing logic similar to RecordHandler's getUserDBConn helper idea
-	userID := c.MustGet("userID").(int64)
-	dbName := c.Param("db_name")
+// CreateAPIKey generates a new API key scoped to a specific database for the user.
+func (h *DatabaseHandler) CreateAPIKey(c *gin.Context) {
+	userId := c.MustGet("userId").(string)
+	dbName := c.Param("db_name") // Get target DB name from path
 
+	// Validate dbName from URL param
 	if !core.IsValidIdentifier(dbName) {
 		err := errors.New("invalid database name in URL path")
 		_ = c.Error(err)
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()}) // Temp direct
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	// Find path, connect to user DB
-	dbFilePath, err := storage.FindDatabasePath(c.Request.Context(), h.MetaDB, userID, dbName)
+	// Bind request body for the label
+	var req models.CreateAPIKeyRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		_ = c.Error(fmt.Errorf("binding error: %w", err))
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid request body: " + err.Error()})
+		return
+	}
+
+	// Find the database ID belonging to the user for the given dbName
+	databaseID, err := storage.FindDatabaseIDByNameAndUser(c.Request.Context(), h.MetaDB, userId, dbName)
 	if err != nil {
 		_ = c.Error(err)
 		if errors.Is(err, storage.ErrDatabaseNotFound) {
-			c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "Database not found or not registered."})
+			// Check if it's the user/db combo specifically
+			c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("Database '%s' not found for your account.", dbName)})
 		} else {
-			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve database information."})
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify database ownership."})
 		}
 		return
 	}
-	userDB, err := storage.ConnectUserDB(c.Request.Context(), dbFilePath)
-	if err != nil {
-		_ = c.Error(err)
-		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to access database storage."})
-		return
-	}
-	defer userDB.Close()
 
-	// Call storage function to list tables
-	tableNames, err := storage.ListTables(c.Request.Context(), userDB)
+	// Call storage function to generate and store the key
+	fullAPIKey, err := storage.StoreAPIKey(c.Request.Context(), h.MetaDB, userId, databaseID, req.Label)
 	if err != nil {
-		log.Printf("Handler: Error listing tables for UserID %d, DB %s: %v", userID, dbName, err)
 		_ = c.Error(err)
-		// Let middleware handle (likely 500)
+		// Handle specific errors from StoreAPIKey if needed (e.g., ErrConflict)
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate API key."})
 		return
 	}
 
-	log.Printf("Handler: Retrieved %d table(s) for UserID %d, DB %s", len(tableNames), userID, dbName)
-	c.JSON(http.StatusOK, gin.H{"tables": tableNames})
+	customLog.Printf("Handler: Generated API key with label '%s' for UserID %s, DB '%s'", req.Label, userId, dbName)
+
+	// Return the generated key ONCE
+	c.JSON(http.StatusCreated, models.CreateAPIKeyResponse{
+		Label:   req.Label,
+		APIKey:  fullAPIKey,
+		Message: "API Key generated successfully. Store it securely - it will not be shown again.",
+	})
 }
-
-// --- *** NEW: Delete Table Handler *** ---
-
-// DeleteTable handles requests to drop a table within a specific user database.
-func (h *DatabaseHandler) DeleteTable(c *gin.Context) {
-	userID := c.MustGet("userID").(int64)
-	dbName := c.Param("db_name")
-	tableName := c.Param("table_name") // Get table name from path
-
-	// Validate both names
-	if !core.IsValidIdentifier(dbName) || !core.IsValidIdentifier(tableName) {
-		err := errors.New("invalid database or table name in URL path")
-		_ = c.Error(err)
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()}) // Temp direct response
-		return
-	}
-
-	// Find path, connect to user DB
-	dbFilePath, err := storage.FindDatabasePath(c.Request.Context(), h.MetaDB, userID, dbName)
-	if err != nil { /* ... handle FindDatabasePath errors (404, 500) ... */
-		_ = c.Error(err)
-		if errors.Is(err, storage.ErrDatabaseNotFound) {
-			c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "Database not found or not registered."})
-		} else {
-			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve database information."})
-		}
-		return
-	}
-	userDB, err := storage.ConnectUserDB(c.Request.Context(), dbFilePath)
-	if err != nil { /* ... handle ConnectUserDB error (500) ... */
-		_ = c.Error(err)
-		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to access database storage."})
-		return
-	}
-	defer userDB.Close()
-
-	// Execute DropTable via storage function
-	log.Printf("Handler: Attempting to drop table '%s' in DB '%s' for UserID %d", tableName, dbName, userID)
-	err = storage.DropTable(c.Request.Context(), userDB, tableName)
-	if err != nil {
-		log.Printf("Handler: Error dropping table '%s' for UserID %d: %v", tableName, userID, err)
-		_ = c.Error(err)
-		// Let middleware handle (likely 500)
-		return
-	}
-
-	log.Printf("Handler: Successfully dropped table '%s' in DB '%s' for UserID %d", tableName, dbName, userID)
-	c.Status(http.StatusNoContent) // Return 204 No Content on success
-}
-
-// --- *** END NEW --
-
-// --- *** NEW: Delete Database Handler *** ---
-
-// DeleteDatabase handles requests to delete a database registration and its file.
-func (h *DatabaseHandler) DeleteDatabase(c *gin.Context) {
-	userID := c.MustGet("userID").(int64)
-	dbName := c.Param("db_name")
-
-	if !core.IsValidIdentifier(dbName) {
-		err := errors.New("invalid database name in URL path")
-		_ = c.Error(err)
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()}) // Temp direct response
-		return
-	}
-
-	// 1. Find the file path *before* deleting the registration
-	dbFilePath, err := storage.FindDatabasePath(c.Request.Context(), h.MetaDB, userID, dbName)
-	if err != nil {
-		_ = c.Error(err)
-		if errors.Is(err, storage.ErrDatabaseNotFound) {
-			c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "Database not found or not registered."})
-		} else {
-			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve database information."})
-		}
-		return
-	}
-
-	// 2. Delete the registration entry from metadata.db
-	log.Printf("Handler: Attempting to delete registration for DB '%s', UserID %d", dbName, userID)
-	err = storage.DeleteDatabaseRegistration(c.Request.Context(), h.MetaDB, userID, dbName)
-	if err != nil {
-		_ = c.Error(err)
-		// ErrDatabaseNotFound here means it was already gone somehow, treat as success? Or specific conflict?
-		// Let's treat not found as success (idempotent), other errors as 500.
-		if !errors.Is(err, storage.ErrDatabaseNotFound) {
-			log.Printf("Handler: Failed to delete DB registration for UserID %d, DB '%s': %v", userID, dbName, err)
-			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete database registration."})
-			return
-		}
-		// If ErrDatabaseNotFound, log it but proceed to file deletion attempt anyway
-		log.Printf("Handler: DB registration for UserID %d, DB '%s' was already deleted or not found, proceeding to file check.", userID, dbName)
-	}
-
-	// 3. Attempt to delete the associated database file
-	// This is best-effort. Log errors but return success if registration was deleted.
-	log.Printf("Handler: Attempting to delete database file: %s", dbFilePath)
-	err = os.Remove(dbFilePath)
-	if err != nil {
-		// Log error but don't fail the request if registration was deleted
-		// Ignore "not found" errors for the file itself (idempotency)
-		if !errors.Is(err, os.ErrNotExist) {
-			log.Printf("Handler: WARN - Failed to delete database file '%s' for UserID %d, DB '%s': %v", dbFilePath, userID, dbName, err)
-			// You could potentially schedule a retry or flag for cleanup later
-		} else {
-			log.Printf("Handler: Database file '%s' already deleted or did not exist.", dbFilePath)
-		}
-	} else {
-		log.Printf("Handler: Successfully deleted database file '%s'", dbFilePath)
-		// Optional: Try to remove the parent directory if empty, but adds complexity/risk
-		// userDbDir := filepath.Dir(dbFilePath)
-		// if entries, _ := os.ReadDir(userDbDir); len(entries) == 0 { os.Remove(userDbDir) }
-	}
-
-	log.Printf("Handler: Completed delete request for DB '%s', UserID %d", dbName, userID)
-	c.Status(http.StatusNoContent) // Return 204 No Content on success
-}
-
-// --- *** END NEW ---

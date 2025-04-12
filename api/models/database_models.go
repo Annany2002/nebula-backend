@@ -20,12 +20,14 @@ type CreateSchemaRequest struct {
 	Columns   []ColumnDefinition `json:"columns" binding:"required,min=1,dive"`
 }
 
-// --- Record Response Structs ---
-// (We can define specific response structs later if needed,
-// for now handlers return map[string]interface{} or simple messages)
+// CreateAPIKeyRequest defines the payload for requesting a new API key.
+type CreateAPIKeyRequest struct {
+	Label string `json:"label" binding:"required,max=100"` // User-provided name/description for the key
+}
 
-// Example: Simple success response with ID
-// type CreateRecordResponse struct {
-//     Message  string `json:"message"`
-//     RecordID int64  `json:"record_id"`
-// }
+// CreateAPIKeyResponse returns the newly generated API key ONCE.
+type CreateAPIKeyResponse struct {
+	Label   string `json:"label"`
+	APIKey  string `json:"api_key"` // The full key (prefix + secret). Store securely!
+	Message string `json:"message,omitempty"`
+}

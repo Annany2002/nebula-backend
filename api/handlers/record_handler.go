@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"log"
 	"math"
 	"net/http"
 	"strconv"
@@ -37,7 +36,7 @@ func NewRecordHandler(metaDB *sql.DB, cfg *config.Config) *RecordHandler {
 // --- Helper to get User DB connection ---
 // Avoids repeating lookup/connect logic in every handler
 func (h *RecordHandler) getUserDBConn(c *gin.Context) (*sql.DB, string, string, error) {
-	userID := c.MustGet("userID").(int64)
+	userId := c.MustGet("userId").(string)
 	dbName := c.Param("db_name")
 	tableName := c.Param("table_name")
 
@@ -45,7 +44,7 @@ func (h *RecordHandler) getUserDBConn(c *gin.Context) (*sql.DB, string, string, 
 		return nil, "", "", errors.New("invalid database or table name in URL path") // Return error
 	}
 
-	dbFilePath, err := storage.FindDatabasePath(c.Request.Context(), h.MetaDB, userID, dbName)
+	dbFilePath, err := storage.FindDatabasePath(c.Request.Context(), h.MetaDB, userId, dbName)
 	if err != nil {
 		return nil, "", "", err // Return storage error (e.g., ErrDatabaseNotFound)
 	}
@@ -88,7 +87,7 @@ func (h *RecordHandler) CreateRecord(c *gin.Context) {
 	}
 
 	// Bind JSON
-	var recordData map[string]interface{}
+	var recordData map[string]any
 	if err := c.ShouldBindJSON(&recordData); err != nil {
 		_ = c.Error(fmt.Errorf("binding error: %w", err))
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON request body: " + err.Error()})
@@ -103,7 +102,8 @@ func (h *RecordHandler) CreateRecord(c *gin.Context) {
 	// Prepare SQL parts and validate types
 	var columns []string
 	var placeholders []string
-	var values []interface{}
+	var values []any
+
 	for key, val := range recordData {
 		lowerKey := strings.ToLower(key)
 		if !core.IsValidIdentifier(key) || lowerKey == "id" {
@@ -165,7 +165,7 @@ func (h *RecordHandler) CreateRecord(c *gin.Context) {
 		if !isValidValue {
 			err := fmt.Errorf("invalid data type for column '%s'. Expected compatible with %s", key, expectedType)
 			_ = c.Error(err)
-			log.Printf("Create Record Type Error: Key: %s, Expected: %s, Got Type: %T, Got Value: %v", key, expectedType, val, val)
+			customLog.Warnf("Create Record Type Error: Key: %s, Expected: %s, Got Type: %T, Got Value: %v", key, expectedType, val, val)
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
@@ -183,7 +183,7 @@ func (h *RecordHandler) CreateRecord(c *gin.Context) {
 	// Construct and execute INSERT via storage function
 	insertSQL := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)",
 		tableName, strings.Join(columns, ", "), strings.Join(placeholders, ", "))
-	log.Printf("Handler: Executing Create Record SQL for DB '%s': %s", dbFilePath, insertSQL)
+	customLog.Printf("Handler: Executing Create Record SQL for DB '%s': %s", dbFilePath, insertSQL)
 
 	lastID, err := storage.InsertRecord(c.Request.Context(), userDB, insertSQL, values...)
 	if err != nil {
@@ -202,14 +202,14 @@ func (h *RecordHandler) CreateRecord(c *gin.Context) {
 		return
 	}
 
-	log.Printf("Handler: Successfully inserted record ID %d into DB '%s', Table '%s'", lastID, dbFilePath, tableName)
+	customLog.Printf("Handler: Successfully inserted record ID %d into DB '%s', Table '%s'", lastID, dbFilePath, tableName)
 	c.JSON(http.StatusCreated, gin.H{
 		"message":   "Record created successfully",
 		"record_id": lastID,
 	})
 }
 
-// --- MODIFIED: ListRecords handles retrieving all records with filtering ---
+// ListRecords handles retrieving all records with filtering ---
 func (h *RecordHandler) ListRecords(c *gin.Context) {
 	userDB, tableName, dbFilePath, err := h.getUserDBConn(c)
 	if err != nil {
@@ -230,7 +230,7 @@ func (h *RecordHandler) ListRecords(c *gin.Context) {
 	// Pass the raw query parameters directly to the storage function
 	queryParams := c.Request.URL.Query() // type url.Values which is map[string][]string
 
-	log.Printf("Handler: Listing Records for DB '%s', Table '%s' with filters: %v", dbFilePath, tableName, queryParams)
+	customLog.Printf("Handler: Listing Records for DB '%s', Table '%s' with filters: %v", dbFilePath, tableName, queryParams)
 
 	// Call the updated storage function
 	results, err := storage.ListRecords(c.Request.Context(), userDB, tableName, queryParams)
@@ -248,7 +248,7 @@ func (h *RecordHandler) ListRecords(c *gin.Context) {
 		return
 	}
 
-	log.Printf("Handler: Successfully retrieved %d records from DB '%s', Table '%s'", len(results), dbFilePath, tableName)
+	customLog.Printf("Handler: Successfully retrieved %d records from DB '%s', Table '%s'", len(results), dbFilePath, tableName)
 	c.JSON(http.StatusOK, results)
 }
 
@@ -277,7 +277,7 @@ func (h *RecordHandler) GetRecord(c *gin.Context) {
 	defer userDB.Close()
 
 	selectSQL := fmt.Sprintf("SELECT * FROM %s WHERE id = ? LIMIT 1;", tableName)
-	log.Printf("Handler: Executing Get Record SQL for DB '%s', ID %d: %s", dbFilePath, recordID, selectSQL)
+	customLog.Printf("Handler: Executing Get Record SQL for DB '%s', ID %d: %s", dbFilePath, recordID, selectSQL)
 
 	recordData, err := storage.GetRecord(c.Request.Context(), userDB, selectSQL, recordID)
 	if err != nil {
@@ -292,7 +292,7 @@ func (h *RecordHandler) GetRecord(c *gin.Context) {
 		return
 	}
 
-	log.Printf("Handler: Successfully retrieved record ID %d from DB '%s', Table '%s'", recordID, dbFilePath, tableName)
+	customLog.Printf("Handler: Successfully retrieved record ID %d from DB '%s', Table '%s'", recordID, dbFilePath, tableName)
 	c.JSON(http.StatusOK, recordData)
 }
 
@@ -347,7 +347,8 @@ func (h *RecordHandler) UpdateRecord(c *gin.Context) {
 
 	// Prepare SQL parts and validate types
 	var setClauses []string
-	var values []interface{}
+	var values []any
+
 	for key, val := range updateData {
 		lowerKey := strings.ToLower(key)
 		if !core.IsValidIdentifier(key) || lowerKey == "id" {
@@ -405,7 +406,7 @@ func (h *RecordHandler) UpdateRecord(c *gin.Context) {
 		if !isValidValue { /* ... handle type mismatch (400) ... */
 			err := fmt.Errorf("invalid data type for column '%s'. Expected compatible with %s", key, expectedType)
 			_ = c.Error(err)
-			log.Printf("Update Record Type Error: Key: %s, Expected: %s, Got Type: %T, Got Value: %v", key, expectedType, val, val)
+			customLog.Warnf("Update Record Type Error: Key: %s, Expected: %s, Got Type: %T, Got Value: %v", key, expectedType, val, val)
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
@@ -424,7 +425,7 @@ func (h *RecordHandler) UpdateRecord(c *gin.Context) {
 	// Construct and execute UPDATE via storage function
 	updateSQL := fmt.Sprintf("UPDATE %s SET %s WHERE id = ?",
 		tableName, strings.Join(setClauses, ", "))
-	log.Printf("Handler: Executing Update Record SQL for DB '%s', ID %d: %s", dbFilePath, recordID, updateSQL)
+	customLog.Printf("Handler: Executing Update Record SQL for DB '%s', ID %d: %s", dbFilePath, recordID, updateSQL)
 
 	_, err = storage.UpdateRecord(c.Request.Context(), userDB, updateSQL, values...)
 	if err != nil {
@@ -449,7 +450,7 @@ func (h *RecordHandler) UpdateRecord(c *gin.Context) {
 		return
 	}
 
-	log.Printf("Handler: Successfully updated record ID %d in DB '%s', Table '%s'", recordID, dbFilePath, tableName)
+	customLog.Printf("Handler: Successfully updated record ID %d in DB '%s', Table '%s'", recordID, dbFilePath, tableName)
 	c.JSON(http.StatusOK, gin.H{
 		"message":   "Record updated successfully",
 		"record_id": recordID,
@@ -482,7 +483,7 @@ func (h *RecordHandler) DeleteRecord(c *gin.Context) {
 
 	// Construct and execute DELETE via storage function
 	deleteSQL := fmt.Sprintf("DELETE FROM %s WHERE id = ?", tableName)
-	log.Printf("Handler: Executing Delete Record SQL for DB '%s', ID %d: %s", dbFilePath, recordID, deleteSQL)
+	customLog.Printf("Handler: Executing Delete Record SQL for DB '%s', ID %d: %s", dbFilePath, recordID, deleteSQL)
 
 	_, err = storage.DeleteRecord(c.Request.Context(), userDB, deleteSQL, recordID)
 	if err != nil {
@@ -497,6 +498,6 @@ func (h *RecordHandler) DeleteRecord(c *gin.Context) {
 		return
 	}
 
-	log.Printf("Handler: Successfully deleted record ID %d from DB '%s', Table '%s'", recordID, dbFilePath, tableName)
+	customLog.Printf("Handler: Successfully deleted record ID %d from DB '%s', Table '%s'", recordID, dbFilePath, tableName)
 	c.Status(http.StatusNoContent) // Use 204 No Content
 }

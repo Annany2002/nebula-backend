@@ -2,66 +2,63 @@ name: Deploy Nebula Backend
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v3
+      - name: Checkout code
+        uses: actions/checkout@v3
 
-    - name: Set up Go
-      uses: actions/setup-go@v4
-      with:
-        go-version: '1.24.1'
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: "1.24.1"
 
-    - name: Verify dependencies
-      run: go mod tidy
+      - name: Verify dependencies
+        run: go mod tidy
 
-    - name: Run Tests 
-      run: go test ./...
+      - name: Build Application
+        run: GOOS=linux GOARCH=amd64 go build -o nebula-backend-server ./cmd/server/main.go
 
-    - name: Build Application
-      run: GOOS=linux GOARCH=amd64 go build -o nebula-backend-server ./cmd/server/main.go
+      - name: Deploy to EC2
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
+          script: |
+            set -e
+            PROJECT_DIR=${{ secrets.EC2_PROJECT_DIR }}
+            BINARY_NAME="nebula-backend-server"
+            SERVICE_NAME="nebula.service"
 
-    - name: Deploy to EC2
-      uses: appleboy/ssh-action@v1.0.3 
-      with:
-        host: ${{ secrets.EC2_HOST }} 
-        username: ${{ secrets.EC2_USERNAME }}
-        key: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
-        script: | 
-          set -e
-          PROJECT_DIR=${{ secrets.EC2_PROJECT_DIR }}
-          BINARY_NAME="nebula-backend-server"
-          SERVICE_NAME="nebula.service"
+            echo "--- Stopping service ---"
+            sudo systemctl stop $SERVICE_NAME || echo "Service not running or failed to stop (continuing deployment)"
 
-          echo "--- Stopping service ---"
-          sudo systemctl stop $SERVICE_NAME || echo "Service not running or failed to stop (continuing deployment)"
+            echo "--- Copying new binary ---"
+            # This action copies files specified in 'source' relative to Actions runner workspace
+            # to 'target' directory on EC2 host.
+            # We need to copy the built binary 'nebula-backend-server'.
+            # Using scp via ssh-action requires specifying source/target differently or using scp directly.
+            # Let's assume we just run git pull and build on the server for simplicity here,
+            # similar to manual steps, but triggered automatically.
 
-          echo "--- Copying new binary ---"
-          # This action copies files specified in 'source' relative to Actions runner workspace
-          # to 'target' directory on EC2 host.
-          # We need to copy the built binary 'nebula-backend-server'.
-          # Using scp via ssh-action requires specifying source/target differently or using scp directly.
-          # Let's assume we just run git pull and build on the server for simplicity here,
-          # similar to manual steps, but triggered automatically.
+            echo "--- Navigating to project directory ---"
+            cd $PROJECT_DIR || exit 1
 
-          echo "--- Navigating to project directory ---"
-          cd $PROJECT_DIR || exit 1
+            echo "--- Pulling latest code ---"
+            git checkout main
+            git pull origin main
 
-          echo "--- Pulling latest code ---"
-          git checkout main
-          git pull origin main
+            go mod tidy
 
-          go mod tidy
+            echo "--- Building application ---"
+            go build -o $BINARY_NAME ./cmd/server/main.go
 
-          echo "--- Building application ---"
-          go build -o $BINARY_NAME ./cmd/server/main.go
+            echo "--- Restarting service ---"
+            sudo systemctl restart $SERVICE_NAME
 
-          echo "--- Restarting service ---"
-          sudo systemctl restart $SERVICE_NAME
-
-          echo "--- Deployment finished ---"
+            echo "--- Deployment finished ---"

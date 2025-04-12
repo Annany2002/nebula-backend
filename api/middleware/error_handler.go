@@ -23,7 +23,7 @@ func ErrorHandler() gin.HandlerFunc {
 		} // No errors
 
 		err := c.Errors.Last().Err
-		log.Printf("[ErrorHandler] Detected error: %v | Type: %T", err, err)
+		customLog.Warnf("[ErrorHandler] Detected error: %v | Type: %T", err, err)
 
 		var statusCode int
 		var userMessage string
@@ -59,7 +59,7 @@ func ErrorHandler() gin.HandlerFunc {
 			userMessage = "Validation failed. Please check your input."
 			// Log details optional
 			for _, fe := range validationErrs {
-				log.Printf("Validation Error: Field %s failed on %s", fe.Field(), fe.Tag())
+				customLog.Warnf("Validation Error: Field %s failed on %s", fe.Field(), fe.Tag())
 			}
 		} else if errors.Is(err, storage.ErrColumnNotFound) ||
 			errors.Is(err, storage.ErrTypeMismatch) ||
@@ -70,7 +70,7 @@ func ErrorHandler() gin.HandlerFunc {
 			// --- Default/Fallback ---
 			statusCode = http.StatusInternalServerError
 			userMessage = "An unexpected internal server error occurred."
-			log.Printf("Unhandled error type: %T, Error: %v", err, err)
+			customLog.Warnf("Unhandled error type: %T, Error: %v", err, err)
 		}
 
 		// Abort and send JSON response if not already sent

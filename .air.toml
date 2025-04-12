@@ -7,12 +7,12 @@ tmp_dir = "tmp"
 [build]
   args_bin = []
   bin = "./tmp/main"
-  cmd = "go build -o ./tmp/main cmd/server/main.go && ./tmp/main"
+  cmd = "go build -o ./tmp/main cmd/server/main.go"
   delay = 1000
-  exclude_dir = ["assets", "tmp", "vendor", "testdata", "data", "cmd/server/tmp", "cmd/server/data"]
+  exclude_dir = ["assets", "tmp", "vendor", "testdata", "data", "cmd/server/tmp", "cmd/server/data", "docs"]
   exclude_file = []
   exclude_regex = ["_test.go"]
-  exclude_unchanged = false
+  exclude_unchanged = true
   follow_symlink = false
   full_bin = ""
   include_dir = ["api", "cmd", "config", "internal"]
@@ -30,11 +30,10 @@ tmp_dir = "tmp"
   stop_on_error = true
 
 [color]
-  main = "\x1b[34;1m"   # Blue and bold
-  watcher = "\x1b[32m"  # Green
-  build = "\x1b[33m"    # Yellow
-  runner = "\x1b[35m"   # Magenta
-  app = "\x1b[36m"      # Cyan
+  build = "yellow"
+  main = "magenta"
+  runner = "green"
+  watcher = "cyan"
 
 [log]
   main_only = false
@@ -42,7 +41,7 @@ tmp_dir = "tmp"
   time = true
 
 [misc]
-  clean_on_exit = true
+  clean_on_exit = false
 
 [proxy]
   app_port = 8080

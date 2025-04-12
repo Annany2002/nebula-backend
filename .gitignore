@@ -43,7 +43,8 @@ data
 .env
 *.env
 
-# Log files
+# Log files and folder
+logs
 *.log
 
 # Temp Files
