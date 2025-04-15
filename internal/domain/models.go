@@ -20,6 +20,7 @@ type DatabaseMetadata struct {
 	FilePath   string    `json:"filePath"`
 	CreatedAt  time.Time `json:"createdAt"`
 	Tables     int64     `json:"tables"`
+	APIKey     string    `json:"apiKey"`
 }
 
 // ColumnInfo represents the information for a single column.

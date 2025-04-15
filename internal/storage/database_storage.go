@@ -18,7 +18,7 @@ var (
 )
 
 // ConnectMetadataDB initializes the connection pool for the metadata SQLite database
-// and ensures the required tables ('users', 'databases', api_key) exist.
+// and ensures the required tables ('users', 'databases', 'api_key') exist.
 func ConnectMetadataDB(cfg *config.Config) (*sql.DB, error) {
 	dbPath := filepath.Join(cfg.MetadataDbDir, cfg.MetadataDbFile)
 	customLog.Printf("Storage: Initializing metadata database: %s", dbPath)
@@ -88,10 +88,8 @@ func ConnectMetadataDB(cfg *config.Config) (*sql.DB, error) {
 	CREATE TABLE IF NOT EXISTS api_keys (
 		api_key_id INTEGER PRIMARY KEY AUTOINCREMENT,
 		api_owner_id TEXT NOT NULL,
-		api_database_id INTEGER NOT NULL,
-		key_prefix TEXT NOT NULL,
-		hashed_key TEXT UNIQUE NOT NULL,
-		label TEXT NOT NULL,
+		api_database_id INTEGER UNIQUE NOT NULL,
+		key TEXT UNIQUE NOT NULL,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 		FOREIGN KEY (api_owner_id) REFERENCES users(user_id) ON DELETE CASCADE,
 		FOREIGN KEY (api_database_id) REFERENCES databases(database_id) ON DELETE CASCADE
@@ -102,12 +100,6 @@ func ConnectMetadataDB(cfg *config.Config) (*sql.DB, error) {
 		return nil, fmt.Errorf("failed to ensure api_keys table: %w", err)
 	}
 
-	createIndexSQL := `CREATE INDEX IF NOT EXISTS idx_api_keys_prefix ON api_keys (key_prefix);`
-	if _, err = db.Exec(createIndexSQL); err != nil {
-		db.Close()
-		customLog.Printf("Storage: Failed to create index on  api_keys table: %v", err)
-		return nil, fmt.Errorf("failed to ensure api_keys table: %w", err)
-	}
 	customLog.Println("Storage: API Keys table ensured.")
 
 	return db, nil

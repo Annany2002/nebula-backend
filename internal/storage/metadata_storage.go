@@ -12,7 +12,6 @@ import (
 
 	"github.com/Annany2002/nebula-backend/internal/domain"
 	"github.com/mattn/go-sqlite3"
-	"golang.org/x/crypto/bcrypt"
 )
 
 // Specific errors for metadata operations
@@ -22,19 +21,12 @@ var (
 	ErrDatabaseExists     = errors.New("database name already exists for this user")
 	ErrDatabaseNotFound   = errors.New("database not found or not registered for this user")
 	ErrInvalidCredentials = errors.New("invalid credentials")
-	ErrConflict           = errors.New("constraint violation")
+	ErrConflict           = errors.New("cannot generate more than one api key for a database")
 	ErrAPIKeyGeneration   = errors.New("failed to generate api key components")
 )
 
 const apiKeyPrefix = "neb_"   // Prefix for nebula
 const apiKeySecretLength = 32 // Length of the random secret part in bytes
-
-// Define a struct to hold key details for validation
-type APIKeyData struct {
-	UserID     string
-	DatabaseID int64
-	HashedKey  string
-}
 
 // --- User Operations ---
 
@@ -154,10 +146,16 @@ func ListUserDatabases(ctx context.Context, db *sql.DB, userId string) ([]domain
 
 		err = userSingleDb.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table';").Scan(&singleDb.Tables)
 		if err != nil {
-			customLog.Printf("Error counting tables in %s: %v\n", singleDb.FilePath, err)
+			customLog.Warnf("Error counting tables in %s: %v\n", singleDb.FilePath, err)
 			continue // Skip to the next database
 		}
 
+		api_key, err := FindAPIKeyByDatabaseId(ctx, db, singleDb.DatabaseID)
+		if err != nil {
+			customLog.Warnf("Error in retrieving api keys for %s: %v", singleDb.DBName, err)
+		}
+
+		singleDb.APIKey = api_key
 		userDb = append(userDb, singleDb)
 	}
 	if err = rows.Err(); err != nil {
@@ -213,48 +211,27 @@ func FindDatabaseIDByNameAndUser(ctx context.Context, db *sql.DB, userId string,
 	return databaseId, nil
 }
 
-// generateAPIKeyParts creates a new prefix, secret, and securely hashes the secret.
-func generateAPIKeyParts() (prefix string, secret string, hashedSecret string, err error) {
-	prefix = apiKeyPrefix
-	// Generate cryptographically secure random bytes for the secret
-	randomBytes := make([]byte, apiKeySecretLength)
-	_, err = rand.Read(randomBytes)
-	if err != nil {
-		customLog.Warnf("Storage: Failed to generate random bytes for API key: %v", err)
-		return "", "", "", ErrAPIKeyGeneration
-	}
-	// Encode random bytes to a URL-safe base64 string for the secret part
-	secret = base64.RawURLEncoding.EncodeToString(randomBytes)
-
-	// Hash the generated secret using bcrypt
-	hashedBytes, err := bcrypt.GenerateFromPassword([]byte(secret), bcrypt.DefaultCost)
-	if err != nil {
-		customLog.Warnf("Storage: Failed to hash API key secret: %v", err)
-		return "", "", "", ErrAPIKeyGeneration
-	}
-	hashedSecret = string(hashedBytes)
-
-	return prefix, secret, hashedSecret, nil
-}
-
 // StoreAPIKey generates and stores a new API key scoped to a specific user and database.
 // It returns the *full, unhashed* key (prefix + secret) ONCE upon successful creation.
-func StoreAPIKey(ctx context.Context, db *sql.DB, userId string, databaseID int64, label string) (string, error) {
-	if label == "" {
-		return "", errors.New("API key label cannot be empty") // Basic validation
-	}
-
-	prefix, secret, hashedSecret, err := generateAPIKeyParts()
+func StoreAPIKey(ctx context.Context, db *sql.DB, userId string, databaseId int64) (string, error) {
+	// Generate cryptographically secure random bytes for the secret
+	randomBytes := make([]byte, apiKeySecretLength)
+	_, err := rand.Read(randomBytes)
 	if err != nil {
-		return "", err // Return generation error
+		customLog.Warnf("Storage: Failed to generate random bytes for API key: %v", err)
+		return "", ErrAPIKeyGeneration
 	}
 
+	// Encode random bytes to a URL-safe base64 string for the secret part
+	secret := base64.RawURLEncoding.EncodeToString(randomBytes)
+
+	key := apiKeyPrefix + secret
 	// Store the prefix, HASHED secret, and other details in the DB
-	insertSQL := `INSERT INTO api_keys (api_owner_id, database_id, key_prefix, hashed_key, label) VALUES (?, ?, ?, ?, ?);`
-	_, err = db.ExecContext(ctx, insertSQL, userId, databaseID, prefix, hashedSecret, label)
+	insertSQL := `INSERT INTO api_keys (api_owner_id, api_database_id, key) VALUES (?, ?, ?);`
+	_, err = db.ExecContext(ctx, insertSQL, userId, databaseId, key)
 	if err != nil {
 		// Handle potential constraint violations (e.g., UNIQUE on hashed_key, though collisions are extremely unlikely)
-		customLog.Warnf("Storage: Failed to store API key for UserID %v, DBID %d: %v", userId, databaseID, err)
+		customLog.Warnf("Storage: Failed to store API key for UserID %v, DBID %d: %v", userId, databaseId, err)
 		var sqliteErr sqlite3.Error
 		if errors.As(err, &sqliteErr) && sqliteErr.Code == sqlite3.ErrConstraint {
 			return "", ErrConflict
@@ -262,39 +239,34 @@ func StoreAPIKey(ctx context.Context, db *sql.DB, userId string, databaseID int6
 		return "", fmt.Errorf("database error storing API key: %w", err)
 	}
 
-	// Return the full, unhashed key (prefix + secret) - ONLY this one time!
-	fullAPIKey := prefix + secret
-	return fullAPIKey, nil
+	return key, nil
 }
 
-// FindAPIKeysByPrefix retrieves potential key data matching a given prefix.
-// In a real high-traffic system, querying just by prefix might be inefficient
-// or insecure if prefixes are not unique enough. Consider indexing key_prefix.
-func FindAPIKeysByPrefix(ctx context.Context, db *sql.DB, prefix string) ([]APIKeyData, error) {
-	query := `SELECT api_owner_id, database_id, hashed_key FROM api_keys WHERE key_prefix = ?;`
-	rows, err := db.QueryContext(ctx, query, prefix)
+// FindAPIKeyByDatabaseId retrieves potential key  for a particular user
+func FindAPIKeyByDatabaseId(ctx context.Context, db *sql.DB, databaseId int64) (string, error) {
+	query := `SELECT key FROM api_keys WHERE api_database_id = ?;`
+	rows, err := db.QueryContext(ctx, query, databaseId)
 	if err != nil {
-		customLog.Warnf("Storage: Error querying API keys by prefix '%s': %v", prefix, err)
+		customLog.Warnf("Storage: Error querying API keys by database_id  '%d': %v", databaseId, err)
 		// Don't return specific errors like Not Found here, let middleware handle empty results
-		return nil, fmt.Errorf("database error finding API keys: %w", err)
+		return "", fmt.Errorf("database error finding API keys: %w", err)
 	}
 	defer rows.Close()
 
-	var keys []APIKeyData
+	var key string
 	for rows.Next() {
-		var keyData APIKeyData
-		if err := rows.Scan(&keyData.UserID, &keyData.DatabaseID, &keyData.HashedKey); err != nil {
-			customLog.Warnf("Storage: Error scanning API key data for prefix '%s': %v", prefix, err)
+		if err := rows.Scan(&key); err != nil {
+			customLog.Warnf("Storage: Error scanning API key data with database_id '%d': %v", databaseId, err)
 			// Return potentially partial results or an error? Let's return error.
-			return nil, fmt.Errorf("failed processing API key data: %w", err)
+			return "", fmt.Errorf("failed processing API key data: %w", err)
 		}
-		keys = append(keys, keyData)
+
 	}
 	if err = rows.Err(); err != nil {
-		customLog.Warnf("Storage: Error iterating API key results for prefix '%s': %v", prefix, err)
-		return nil, fmt.Errorf("failed reading API key data: %w", err)
+		customLog.Warnf("Storage: Error iterating API key results wuth database_id '%d': %v", databaseId, err)
+		return "", fmt.Errorf("failed reading API key data: %w", err)
 	}
 
 	// Returns empty slice if no keys found for the prefix
-	return keys, nil
+	return key, nil
 }

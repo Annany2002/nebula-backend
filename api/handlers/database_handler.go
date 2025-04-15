@@ -258,6 +258,7 @@ func (h *DatabaseHandler) CreateSchema(c *gin.Context) {
 	})
 }
 
+// GetSchema returns the schema for a table
 func (h *DatabaseHandler) GetSchema(c *gin.Context) {
 	userId := c.MustGet("userId").(string)
 	dbName := c.Param("db_name")
@@ -311,11 +312,47 @@ func (h *DatabaseHandler) CreateAPIKey(c *gin.Context) {
 		return
 	}
 
-	// Bind request body for the label
-	var req models.CreateAPIKeyRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		_ = c.Error(fmt.Errorf("binding error: %w", err))
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid request body: " + err.Error()})
+	// Find the database ID belonging to the user for the given dbName
+	databaseID, err := storage.FindDatabaseIDByNameAndUser(c.Request.Context(), h.MetaDB, userId, dbName)
+	if err != nil {
+		_ = c.Error(err)
+		if errors.Is(err, storage.ErrDatabaseNotFound) {
+			// Check if it's the user/db combo specifically
+			c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("Database '%s' not found for your account.", dbName)})
+		} else {
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify database ownership."})
+		}
+		return
+	}
+
+	// Call storage function to generate and store the key
+	APIKey, err := storage.StoreAPIKey(c.Request.Context(), h.MetaDB, userId, databaseID)
+	if err != nil {
+		_ = c.Error(err)
+		// Handle specific errors from StoreAPIKey if needed (e.g., ErrConflict)
+		c.AbortWithStatusJSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("%v", err)})
+		return
+	}
+
+	customLog.Printf("Handler: Generated API key for UserID %s, DB '%s'", userId, dbName)
+
+	// Return the generated key ONCE
+	c.JSON(http.StatusCreated, models.CreateAPIKeyResponse{
+		APIKey:  APIKey,
+		Message: "API Key generated successfully. Store it securely - it will not be shown again.",
+	})
+}
+
+// GetAPIKeys fetches all the API keys of the user
+func (h *DatabaseHandler) GetAPIKey(c *gin.Context) {
+	userId := c.MustGet("userId").(string)
+	dbName := c.Param("db_name") // Get target DB name from path
+
+	// Validate dbName from URL param
+	if !core.IsValidIdentifier(dbName) {
+		err := errors.New("invalid database name in URL path")
+		_ = c.Error(err)
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -332,21 +369,11 @@ func (h *DatabaseHandler) CreateAPIKey(c *gin.Context) {
 		return
 	}
 
-	// Call storage function to generate and store the key
-	fullAPIKey, err := storage.StoreAPIKey(c.Request.Context(), h.MetaDB, userId, databaseID, req.Label)
+	api_key, err := storage.FindAPIKeyByDatabaseId(c.Request.Context(), h.MetaDB, databaseID)
 	if err != nil {
-		_ = c.Error(err)
-		// Handle specific errors from StoreAPIKey if needed (e.g., ErrConflict)
-		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate API key."})
+		c.JSON(500, gin.H{"error": err})
 		return
 	}
 
-	customLog.Printf("Handler: Generated API key with label '%s' for UserID %s, DB '%s'", req.Label, userId, dbName)
-
-	// Return the generated key ONCE
-	c.JSON(http.StatusCreated, models.CreateAPIKeyResponse{
-		Label:   req.Label,
-		APIKey:  fullAPIKey,
-		Message: "API Key generated successfully. Store it securely - it will not be shown again.",
-	})
+	c.JSON(200, gin.H{"key": api_key})
 }

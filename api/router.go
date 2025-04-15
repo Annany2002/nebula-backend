@@ -67,7 +67,8 @@ func SetupRouter(metaDB *sql.DB, cfg *config.Config) *gin.Engine {
 	accountRoutes := router.Group("/api/v1/account")  // Or just /account
 	accountRoutes.Use(middleware.AuthMiddleware(cfg)) // Use JWT Middleware HERE
 	{
-		accountRoutes.POST("/databases/:db_name/apikeys", dbHandler.CreateAPIKey)
+		accountRoutes.GET("/databases/:db_name/apikey", dbHandler.GetAPIKey)
+		accountRoutes.POST("/databases/:db_name/apikey", dbHandler.CreateAPIKey)
 		//      // Add other account routes here (e.g., change password)
 	}
 

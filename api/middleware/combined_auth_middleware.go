@@ -59,27 +59,30 @@ func CombinedAuthMiddleware(db *sql.DB, cfg *config.Config) gin.HandlerFunc {
 			keyPrefix := apiKeyPrefix
 			secretPart := strings.TrimPrefix(credentials, keyPrefix)
 
-			potentialKeys, err := storage.FindAPIKeysByPrefix(c.Request.Context(), db, keyPrefix)
+			dbID, ok := databaseId.(int64)
+			if !ok {
+				authErr = fmt.Errorf("invalid databaseId type: expected int64, got %T", databaseId)
+				break
+			}
+
+			api_key, err := storage.FindAPIKeyByDatabaseId(c.Request.Context(), db, dbID)
 			if err != nil {
 				customLog.Warnf("CombinedAuthMiddleware: DB error looking up ApiKey prefix '%s': %v", keyPrefix, err)
 				authErr = fmt.Errorf("internal error during auth: %w", err) // Wrap internal DB error
 				break
 			}
-			if len(potentialKeys) == 0 {
+			if len(api_key) == 0 {
 				authErr = nebulaErrors.ErrUnauthorized // Use specific error; message set by error handler
 				break
 			}
 
 			isValidKey := false
-			for _, keyData := range potentialKeys {
-				if bcrypt.CompareHashAndPassword([]byte(keyData.HashedKey), []byte(secretPart)) == nil {
-					isValidKey = true
-					userId = keyData.UserID
-					databaseId = keyData.DatabaseID // Store the specific DB ID
-					// Optional: Update last_used_at
-					break
-				}
+			if bcrypt.CompareHashAndPassword([]byte(api_key), []byte(secretPart)) == nil {
+				isValidKey = true
+				// Optional: Update last_used_at
+				break
 			}
+
 			if !isValidKey {
 				authErr = nebulaErrors.ErrUnauthorized
 			}
@@ -126,7 +129,7 @@ func CombinedAuthMiddleware(db *sql.DB, cfg *config.Config) gin.HandlerFunc {
 		}
 
 		// --- Authentication Success ---
-		customLog.Printf("CombinedAuthMiddleware: Auth success. UserID: %s, DatabaseID: %v (Scheme: %s)", userId, databaseId, scheme)
+		customLog.Printf("CombinedAuthMiddleware: Auth success. UserID: %s, DatabaseID: %v (Scheme: %s)\n", userId, databaseId, scheme)
 		c.Set("userId", userId)
 		c.Set("databaseId", databaseId) // Will be int64 for DB-scoped ApiKey, nil for JWT
 
