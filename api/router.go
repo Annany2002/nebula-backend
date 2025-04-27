@@ -56,6 +56,9 @@ func SetupRouter(metaDB *sql.DB, cfg *config.Config) *gin.Engine {
 
 	// --- Public Routes ---
 	router.GET("/ping", func(c *gin.Context) { c.String(200, "pong") })
+
+	// Public route for health check
+	router.GET("/health", func(c *gin.Context) { c.Status(200) })
 	authRoutes := router.Group("/auth")
 	{ /* Routes using authHandler */
 		authRoutes.POST("/signup", authHandler.Signup)

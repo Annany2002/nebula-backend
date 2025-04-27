@@ -21,12 +21,14 @@ var (
 	apiKeyPrefix = "neb_"
 )
 
+// This middleware checks requests coming using either from the bearer or the api key token
+// within the Authorization Header
 func CombinedAuthMiddleware(db *sql.DB, cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" {
 			// No Authorization header provided at all
-			err := nebulaErrors.ErrUnauthorized // Use specific error
+			err := nebulaErrors.ErrUnauthorized
 			c.Error(err)
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Authorization header required"})
 			return
@@ -45,7 +47,7 @@ func CombinedAuthMiddleware(db *sql.DB, cfg *config.Config) gin.HandlerFunc {
 		credentials := parts[1]
 
 		var userId string
-		var databaseId interface{} // Use interface{} to allow nil for JWT/user-key scope
+		var databaseId any
 		var authErr error
 
 		// --- Try Different Authentication Schemes ---

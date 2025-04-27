@@ -1,4 +1,3 @@
-// config/config.go
 package config
 
 import (
@@ -25,15 +24,15 @@ type Config struct {
 }
 
 // LoadConfig loads configuration from environment variables.
-// It uses a .env file for local development if present.
+// It uses a .env file for local development if present (ignores it for production).
 func LoadConfig() (*Config, error) {
 	customLog.Println("Loading configuration from environment variables...")
 
-	// Attempt to load .env file, ignore if not found (useful for production)
-	err := godotenv.Load() // Loads .env file from current directory by default
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		customLog.Warnf("Warning: Error loading .env file: %v", err)
-		// Decide if this should be a fatal error or just a warning
+	// Attempt to load .env file if in development environment (skip in production)
+	if os.Getenv("APP_ENV") != "production" {
+		if err := godotenv.Load(); err != nil && !errors.Is(err, os.ErrNotExist) {
+			customLog.Warnf("Warning: Error loading .env file: %v", err)
+		}
 	}
 
 	// Read values from environment variables, providing defaults where appropriate
@@ -42,25 +41,25 @@ func LoadConfig() (*Config, error) {
 	jwtExpHoursStr := getEnv("JWT_EXPIRATION_HOURS", "24") // Default to 24 hours
 	dbDir := getEnv("DATABASE_DIRECTORY", "data")
 	dbFile := getEnv("DATABASE_DIRECTORY_FILE", "metadata.db")
-	// --- Validation and Parsing ---
 
+	// --- Validation and Parsing ---
 	// Critical: Ensure JWT Secret is set
 	if jwtSecret == "" {
 		return nil, errors.New("JWT_SECRET environment variable must be set")
 	}
 	if jwtSecret == "!!replace_this_with_a_real_secret_key!!" {
 		customLog.Warnln("WARNING: JWT_SECRET is set to the default placeholder!")
-		// return nil, errors.New("default placeholder JWT_SECRET must be changed")
 	}
 
-	// Parse JWT Expiration
+	// Parse JWT Expiration (hours)
 	jwtExpHours, err := strconv.Atoi(jwtExpHoursStr)
 	if err != nil || jwtExpHours <= 0 {
-		customLog.Warnf("Warning: Invalid JWT_EXPIRATION_HOURS '%s'. Using default 24h. Error: %v", jwtExpHoursStr, err)
-		jwtExpHours = 24 // Fallback to default on parsing error
+		customLog.Warnf("Invalid JWT_EXPIRATION_HOURS '%s'. Using default 24h. Error: %v", jwtExpHoursStr, err)
+		jwtExpHours = 24 // Default to 24 hours
 	}
 	jwtExpiration := time.Hour * time.Duration(jwtExpHours)
 
+	// Return final Config struct
 	cfg := &Config{
 		ServerPort:     port,
 		JWTSecret:      jwtSecret,
@@ -74,9 +73,14 @@ func LoadConfig() (*Config, error) {
 }
 
 // getEnv reads an environment variable or returns a default value.
+// It also checks for required critical variables like JWT_SECRET.
 func getEnv(key, fallback string) string {
 	if value, exists := os.LookupEnv(key); exists {
 		return value
+	}
+	// Return the fallback value, but only if it isn't critical.
+	if fallback == "" {
+		customLog.Fatalf("Critical environment variable '%s' is missing and has no fallback.", key)
 	}
 	return fallback
 }
