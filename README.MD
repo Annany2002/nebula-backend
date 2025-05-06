@@ -1,4 +1,4 @@
-# Nebula (v0.1.1+)
+# Nebula (v0.2.0)
 
 An improved Minimum Viable Product (MVP) for a Backend-as-a-Service (BaaS) built using Go. This version includes core management APIs, CORS support, rate limiting, structured logging, and flexible authentication.
 
@@ -95,81 +95,91 @@ _*(Key directories explained: `cmd`=entrypoint, `api`=HTTP layer, `internal`=cor
 **Prerequisites:**
 
 - Go (version 1.18+ recommended).
+- Docker and Docker Compose
 
-**Steps:**
+### 1. Clone the Repository
 
-1.  **Clone:** `git clone https://github.com/Annany2002/nebula-backend.git && cd nebula-backend`
-2.  **Dependencies:** `go mod tidy`
-3.  **Configuration:**
-    - `cp .env.example .env`
-    - **Edit `.env`:**
-      - **CRITICAL:** Set a strong, unique `JWT_SECRET`.
-      - Set `ALLOWED_ORIGINS` (space-separated list of frontend origins for CORS, e.g., `"http://localhost:3000 http://your-frontend.com"`).
-      - Adjust `SERVER_PORT`, `JWT_EXPIRATION_HOURS`, etc., if needed.
-    - Ensure `.env` is in `.gitignore`.
-4.  **Run:**
-    ```bash
-    go run ./cmd/server/main.go
-    # OR using air (if installed)
-    # air
-    ```
-    Server starts on the configured port (default `:8080`).
+```bash
+git clone https://github.com/Annany2002/nebula-backend.git
+cd nebula-backend
+```
+
+### 2. Build the Docker Image
+
+To build the Docker image for the Nebula Backend, run the following command:
+
+```bash
+docker build -t nebula-backend .
+```
+
+### 3. Create and Configure the `.env` File
+
+- `cp .env.example .env`
+- **Edit `.env`:**
+  - **CRITICAL:** Set a strong, unique `JWT_SECRET`.
+  - Set `ALLOWED_ORIGINS` (space-separated list of frontend origins for CORS, e.g., `"http://localhost:3000 http://your-frontend.com"`).
+  - Adjust `SERVER_PORT`, `JWT_EXPIRATION_HOURS`, etc., if needed.
+  - Ensure `.env` is in `.gitignore`.
+
+### 4. Run with Docker Compose(Upcoming)
+
+To start the application using Docker Compose:
+
+```bash
+docker-compose up --build
+```
+
+This will:
+
+- Build the `nebula-backend` image and the `nginx` service.
+- Start the backend service (with 5 replicas as specified).
+- Start the Nginx reverse proxy to handle external traffic.
+
+The backend API will be available on port `8080`, and Nginx will be available on port `80`.
+
+### 5. Scaling the Backend
+
+To scale the backend service to a different number of replicas, modify the `replicas` value in `docker-compose.yml` and redeploy:
+
+```yaml
+deploy:
+  replicas: 10 # Scale the backend service to 10 replicas
+```
+
+Then, run:
+
+```bash
+docker-compose up --scale nebula-backend=10
+```
+
+### 6. Stopping and Removing Containers
+
+To stop the services and remove the containers, run:
+
+```bash
+docker-compose down
+```
+
+This will stop and remove all containers defined in the `docker-compose.yml` file.
 
 ## API Usage / Testing Examples (`curl`)
 
-_(Replace `<token>`, `<api_key>`, `<db_name>`, etc. Use your actual values)_
+_(Replace `<token>`, `<api_key>`, `<db_name>`, etc. with actual values)_
 
-1.  **Signup:** `curl -X POST ... /auth/signup ...`
-2.  **Login:** `curl -X POST ... /auth/login` -> **Save `<jwt_token>`**
-3.  **Generate API Key:** _(Requires JWT Auth)_
-    ```bash
-    TOKEN="<jwt_token>"
-    DB_NAME="my_app_db" # Assumes this DB was created first
-    curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-         -d '{"label": "my_app_key"}' \
-         http://localhost:8080/api/v1/account/databases/$DB_NAME/apikeys
-    ```
-    -> **Save `<api_key>` (e.g., `neb_...`)**
-4.  **List Databases:** _(Requires User-Scope Auth: JWT or User API Key if implemented)_
-    ```bash
-    TOKEN="<jwt_token_or_user_api_key>" # Use appropriate scheme (Bearer or ApiKey)
-    curl -X GET -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/v1/databases
-    ```
-5.  **List Tables:** _(Requires DB-Scoped ApiKey OR User-Scoped Auth)_
-    ```bash
-    API_KEY="<api_key>" # e.g., neb_...
-    DB_NAME="my_app_db"
-    curl -X GET -H "Authorization: ApiKey $API_KEY" http://localhost:8080/api/v1/databases/$DB_NAME/tables
-    ```
-6.  **Create Record:** _(Requires DB-Scoped ApiKey OR User-Scoped Auth)_
-    ```bash
-    API_KEY="<api_key>"
-    DB_NAME="my_app_db"
-    TABLE_NAME="tasks"
-    curl -X POST -H "Authorization: ApiKey $API_KEY" -H "Content-Type: application/json" \
-         -d '{ "description": "Test API Key", "priority": 1 }' \
-         http://localhost:8080/api/v1/databases/$DB_NAME/tables/$TABLE_NAME/records
-    ```
-7.  **List Records (Filter):** _(Requires DB-Scoped ApiKey OR User-Scoped Auth)_
-    ```bash
-    API_KEY="<api_key>"
-    DB_NAME="my_app_db"
-    TABLE_NAME="tasks"
-    curl -X GET -H "Authorization: ApiKey $API_KEY" "http://localhost:8080/api/v1/databases/$DB_NAME/tables/$TABLE_NAME/records?priority=1"
-    ```
-    (See previous README version or test files for other CRUD examples)\_
+1. **Signup**: `curl -X POST ... /auth/signup ...`
+2. **Login**: `curl -X POST ... /auth/login` -> **Save `<jwt_token>`**
+3. **Generate API Key**: _(Requires JWT Auth)_
 
-## Limitations & Future Work
+   ```bash
+   TOKEN="<jwt_token>"
+   DB_NAME="my_app_db" # Assumes this DB was created first
+   curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+        -d '{"label": "my_app_key"}' \
+        http://localhost:8080/api/v1/account/databases/$DB_NAME/apikeys
+   ```
 
-This remains an MVP. Key limitations and future directions:
+   -> **Save `<api_key>` (e.g., `neb_...`)**
 
-- **Scalability:** SQLite file-per-user is the primary bottleneck. **Next Step:** Migrate to PostgreSQL/MySQL.
-- **Querying:** Only basic equality filtering. **Next Step:** Implement pagination, sorting, advanced filtering.
-- **Testing:** Foundational tests exist, but comprehensive integration test coverage for all APIs (CRUD, Mgmt) is needed.
-- **Next Step:** Add more tests.
-- **Security:** Basic rate limiting exists. Needs user-based rate limits, deeper sanitization, RBAC.
-- **Migrations:** No system for schema evolution. **Next Step:** Implement migration tooling.
-- **API Documentation:** No auto-generated docs. **Next Step:** Add Swagger/OpenAPI.
-- **Missing BaaS Features:** File storage, real-time, etc.
+## Conclusion
 
-## License
+With Docker and Docker Compose, you can now easily deploy and scale your Nebula backend. The setup also includes Nginx as a reverse proxy, making it easy to manage traffic and handle load balancing.

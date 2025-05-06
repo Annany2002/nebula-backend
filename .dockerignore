@@ -1,0 +1,32 @@
+# Common
+**/.git
+.idea
+.vscode
+*.log
+tmp/
+temp/
+**/build
+*.md
+*.log
+*.env
+Dockerfile
+docker-compose.*
+
+# Frontend Specific
+dist/
+**/node_modules
+build/
+.cache/
+yarn-error.log
+package-lock.json # If using npm and yarn
+yarn.lock       # If using yarn and npm
+
+# Backend Specific
+bin/
+pkg/
+*.exe
+*.test
+_test
+
+# for sqlite
+data
