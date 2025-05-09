@@ -35,7 +35,7 @@ func NewDatabaseHandler(metaDB *sql.DB, cfg *config.Config) *DatabaseHandler {
 
 // CreateDatabase handles requests to register a new user database.
 func (h *DatabaseHandler) CreateDatabase(c *gin.Context) {
-	userId := c.MustGet("userId").(string) // From AuthMiddleware
+	userId := c.MustGet("userId").(string) // From CombinedAuthMiddleware
 
 	var req models.CreateDatabaseRequest
 	if err := c.ShouldBindJSON(&req); err != nil {

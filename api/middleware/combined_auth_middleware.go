@@ -13,7 +13,6 @@ import (
 	"github.com/Annany2002/nebula-backend/internal/logger"
 	"github.com/Annany2002/nebula-backend/internal/storage"
 	"github.com/gin-gonic/gin"
-	"golang.org/x/crypto/bcrypt"
 )
 
 var (
@@ -49,51 +48,73 @@ func CombinedAuthMiddleware(db *sql.DB, cfg *config.Config) gin.HandlerFunc {
 		var userId string
 		var databaseId any
 		var authErr error
+		var isApiKeyAuth bool = false
 
 		// --- Try Different Authentication Schemes ---
 		switch scheme {
 		case "apikey":
 			customLog.Println("CombinedAuthMiddleware: Attempting ApiKey authentication...")
-			if !strings.HasPrefix(credentials, apiKeyPrefix) { // apiKeyPrefix defined in apikey_auth_middleware or storage
+			if !strings.HasPrefix(credentials, apiKeyPrefix) {
 				authErr = fmt.Errorf("%w: invalid key prefix", nebulaErrors.ErrTokenMalformed)
-				break // Go to error handling outside switch
-			}
-			keyPrefix := apiKeyPrefix
-			secretPart := strings.TrimPrefix(credentials, keyPrefix)
-
-			dbID, ok := databaseId.(int64)
-			if !ok {
-				authErr = fmt.Errorf("invalid databaseId type: expected int64, got %T", databaseId)
-				break
+				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid API key"})
+				return
 			}
 
-			api_key, err := storage.FindAPIKeyByDatabaseId(c.Request.Context(), db, dbID)
+			// Find database ID from the API key
+			apiKeyQuery := `SELECT api_database_id, api_owner_id FROM api_keys WHERE key = ?`
+			row := db.QueryRow(apiKeyQuery, credentials)
+
+			err := row.Scan(&databaseId, &userId)
 			if err != nil {
-				customLog.Warnf("CombinedAuthMiddleware: DB error looking up ApiKey prefix '%s': %v", keyPrefix, err)
-				authErr = fmt.Errorf("internal error during auth: %w", err) // Wrap internal DB error
-				break
+				if err == sql.ErrNoRows {
+					authErr = fmt.Errorf("%w: invalid API key", nebulaErrors.ErrTokenMalformed)
+					c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid API key"})
+					return
+				}
+				customLog.Fatalf("error scanning databaseId: %v", err)
+				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid API key format"})
+				return
+			}
+
+			// keyParts := strings.SplitN(credentials, "_", 2)
+			// customLog.Printf("keyParts is %v", keyParts)
+			// if len(keyParts) != 2 {
+			// 	authErr = fmt.Errorf("%w: inval	id key format", nebulaErrors.ErrTokenMalformed)
+			// 	c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid API key format"})
+			// 	return
+			// }
+
+			// secretPart := keyParts[1]
+			api_key, err := storage.FindAPIKeyByDatabaseId(c.Request.Context(), db, databaseId.(int64))
+			if err != nil {
+				customLog.Warnf("CombinedAuthMiddleware: DB error looking up ApiKey for database ID '%d': %v", databaseId.(int64), err)
+				authErr = fmt.Errorf("internal error during auth: %w", err)
+				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid API key format"})
+				return
 			}
 			if len(api_key) == 0 {
-				authErr = nebulaErrors.ErrUnauthorized // Use specific error; message set by error handler
-				break
-			}
-
-			isValidKey := false
-			if bcrypt.CompareHashAndPassword([]byte(api_key), []byte(secretPart)) == nil {
-				isValidKey = true
-				// Optional: Update last_used_at
-				break
-			}
-
-			if !isValidKey {
 				authErr = nebulaErrors.ErrUnauthorized
+				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid API key"})
+				return
 			}
+
+			// c.Set("databaseId", databaseId)
+
+			// if bcrypt.CompareHashAndPassword([]byte(api_key), []byte(secretPart)) != nil {
+			// 	authErr = nebulaErrors.ErrUnauthorized
+			// 	c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid API key format"})
+			// 	return
+			// }
+			isApiKeyAuth = true
+			c.Set("isApiKey", isApiKeyAuth)
+
 		// --- End API Key Logic ---
 
 		case "bearer":
 			customLog.Println("CombinedAuthMiddleware: Attempting Bearer token authentication...")
 			// --- JWT Validation Logic (adapted from AuthMiddleware) ---
 			var jwtUserID string
+
 			jwtUserID, authErr = nebulaErrors.ValidateJWT(credentials, cfg.JWTSecret) // Use internal func
 			if authErr != nil {
 				customLog.Printf("AuthMiddleware: Token validation failed: %v", authErr)
@@ -114,7 +135,7 @@ func CombinedAuthMiddleware(db *sql.DB, cfg *config.Config) gin.HandlerFunc {
 			userId = jwtUserID
 			databaseId = nil // Explicitly set databaseID to nil for JWT/user scope
 
-			// --- End JWT Logic ---
+		// --- End JWT Logic ---
 
 		default:
 			// Unsupported authentication scheme
