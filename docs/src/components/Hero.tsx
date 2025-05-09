@@ -31,12 +31,18 @@ export const Hero: React.FC = () => {
           </p>
 
           <div className="flex flex-wrap gap-4 justify-center">
-            <Link to="/quickstart">
+            <Link to="/quickstart" target="_blank">
+              <Button size="lg" className="bg-white text-black">
+                Get Started
+                <ChevronRight className="ml-1 h-4 w-4" />
+              </Button>
+            </Link>
+            <Link to="https://www.npmjs.com/package/nebula-sdk-ts">
               <Button
                 size="lg"
                 className="bg-nebula-500 hover:bg-nebula-600 text-white"
               >
-                Get Started
+                View TypeScript SDK
                 <ChevronRight className="ml-1 h-4 w-4" />
               </Button>
             </Link>
