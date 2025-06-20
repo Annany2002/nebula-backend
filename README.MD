@@ -61,35 +61,6 @@ This project demonstrates the core concepts of a BaaS, allowing authenticated us
 - **Logging:** Custom Structured Logger (`internal/logger`)
 - **Testing:** Go standard `testing`, `net/http/httptest`, `github.com/stretchr/testify/assert`
 
-## Project Structure
-
-```bash
-nebula-backend/
-├── api/                 # API layer (HTTP handlers, routing, middleware, DTOs)
-│   ├── handlers/
-│   ├── middleware/
-│   ├── models/
-│   └── router.go
-├── cmd/                 # Main application(s) entry point
-│   └── server/
-│       └── main.go
-├── config/              # Configuration loading
-├── internal/            # Internal application logic
-│   ├── auth/
-│   ├── core/
-│   ├── domain/
-│   ├── logger/          # Structured logger implementation
-│   └── storage/
-├── data/                # Runtime data (SQLite files) - ignored by git
-├── .env.example         # Example environment file
-├── .gitignore
-├── go.mod
-├── go.sum
-└── README.md
-```
-
-_*(Key directories explained: `cmd`=entrypoint, `api`=HTTP layer, `internal`=core logic/storage, `config`=config loading, `data`=runtime files)*_
-
 ## Setup & Running
 
 **Prerequisites:**
@@ -131,28 +102,9 @@ docker-compose up --build
 
 This will:
 
-- Build the `nebula-backend` image and the `nginx` service.
-- Start the backend service (with 5 replicas as specified).
-- Start the Nginx reverse proxy to handle external traffic.
+- Build the `nebula-backend` image on port `8080` and the `nginx` service.
 
-The backend API will be available on port `8080`, and Nginx will be available on port `80`.
-
-### 5. Scaling the Backend
-
-To scale the backend service to a different number of replicas, modify the `replicas` value in `docker-compose.yml` and redeploy:
-
-```yaml
-deploy:
-  replicas: 10 # Scale the backend service to 10 replicas
-```
-
-Then, run:
-
-```bash
-docker-compose up --scale nebula-backend=10
-```
-
-### 6. Stopping and Removing Containers
+### 5. Stopping and Removing Containers
 
 To stop the services and remove the containers, run:
 
@@ -162,24 +114,31 @@ docker-compose down
 
 This will stop and remove all containers defined in the `docker-compose.yml` file.
 
-## API Usage / Testing Examples (`curl`)
+## Contributing
 
-_(Replace `<token>`, `<api_key>`, `<db_name>`, etc. with actual values)_
+We welcome contributions!
+Please check out the following before opening an issue or PR:
 
-1. **Signup**: `curl -X POST ... /auth/signup ...`
-2. **Login**: `curl -X POST ... /auth/login` -> **Save `<jwt_token>`**
-3. **Generate API Key**: _(Requires JWT Auth)_
+- [📜 Contribution Guide](./CONTRIBUTING.md)
+- [🐞 Bug Report Template](.github/ISSUE_TEMPLATE/bug_report.yaml)
+- [✨ Feature Request Template](.github/ISSUE_TEMPLATE/feature_request.yaml)
+- [🔁 Pull Request Template](.github/PULL_REQUEST_TEMPLATE.md)
 
-   ```bash
-   TOKEN="<jwt_token>"
-   DB_NAME="my_app_db" # Assumes this DB was created first
-   curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-        -d '{"label": "my_app_key"}' \
-        http://localhost:8080/api/v1/account/databases/$DB_NAME/apikeys
-   ```
+To begin:
 
-   -> **Save `<api_key>` (e.g., `neb_...`)**
+```bash
+# Fork + Clone
+# Create a new branch
+git checkout -b feat/improve-auth-ui
 
-## Conclusion
+# After changes:
+air  # start the local development server
+```
 
-With Docker and Docker Compose, you can now easily deploy and scale your Nebula backend. The setup also includes Nginx as a reverse proxy, making it easy to manage traffic and handle load balancing.
+## License
+
+This project is licensed under the MIT License. See [LICENSE](https://github.com/Annany2002/nebula-backend/blob/main/LICENSE) for details.
+
+## Acknowledgements
+
+Thanks for checking out Nebula Backend! Join us in building a developer-friendly, open-source BaaS ✨

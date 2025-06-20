@@ -377,3 +377,48 @@ func (h *DatabaseHandler) GetAPIKey(c *gin.Context) {
 
 	c.JSON(200, gin.H{"key": api_key})
 }
+
+func (h *DatabaseHandler) DeleteAPIKey(c *gin.Context) {
+	userId := c.MustGet("userId").(string)
+	dbName := c.Param("db_name") // Get target DB name from path
+
+	// Validate dbName from URL param
+	if !core.IsValidIdentifier(dbName) {
+		err := errors.New("invalid database name in URL path")
+		_ = c.Error(err)
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Find the database ID belonging to the user for the given dbName
+	databaseId, err := storage.FindDatabaseIDByNameAndUser(c.Request.Context(), h.MetaDB, userId, dbName)
+	if err != nil {
+		_ = c.Error(err)
+		if errors.Is(err, storage.ErrDatabaseNotFound) {
+			// Check if it's the user/db combo specifically
+			c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("Database '%s' not found for your account.", dbName)})
+		} else {
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify database ownership."})
+		}
+		return
+	}
+
+	key, err := storage.FindAPIKeyByDatabaseId(c.Request.Context(), h.MetaDB, databaseId)
+
+	if err != nil {
+		c.AbortWithStatusJSON(401, gin.H{"message": err})
+	}
+
+	if key == "" {
+		c.AbortWithStatusJSON(400, gin.H{"message": fmt.Sprintf("No api key found for database %s", dbName)})
+		return
+	}
+
+	err = storage.DeleteAPIKey(c.Request.Context(), h.MetaDB, key)
+	if err != nil {
+		c.AbortWithStatusJSON(400, err)
+		return
+	}
+
+	c.Status(http.StatusNoContent)
+}

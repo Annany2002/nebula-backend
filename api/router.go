@@ -24,8 +24,6 @@ var (
 
 // SetupRouter initializes the Gin router and sets up all routes.
 func SetupRouter(metaDB *sql.DB, cfg *config.Config) *gin.Engine {
-	// Consider gin.New() for more control over default middleware
-
 	router := gin.Default() // Includes Logger and Recovery
 
 	// Configure CORS middleware
@@ -76,6 +74,7 @@ func SetupRouter(metaDB *sql.DB, cfg *config.Config) *gin.Engine {
 	{
 		accountRoutes.GET("/databases/:db_name/apikey", dbHandler.GetAPIKey)
 		accountRoutes.POST("/databases/:db_name/apikey", dbHandler.CreateAPIKey)
+		accountRoutes.DELETE("/databases/:db_name/apikey", dbHandler.DeleteAPIKey)
 	}
 
 	// --- Protected Routes ---
@@ -106,6 +105,7 @@ func SetupRouter(metaDB *sql.DB, cfg *config.Config) *gin.Engine {
 		})
 
 		apiRoutes.GET("/user/:user_id", authHandler.FindUser)
+		// apiRoutes.GET("/user/me", authHandler.GetUser)
 
 		// Databases Manangement
 		apiRoutes.GET("/databases", dbHandler.ListDatabases)

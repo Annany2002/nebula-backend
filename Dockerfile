@@ -16,7 +16,6 @@ ENV GOARCH=amd64
 
 RUN go build -ldflags="-s -w" -o nebula-backend-server ./cmd/server/main.go
 
-
 # 2. Runtime Stage
 FROM alpine:latest
 
@@ -26,15 +25,16 @@ RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 
 WORKDIR /app
 
-RUN mkdir -p /app/logs && chown -R appuser:appgroup /app
+RUN mkdir -p /app/logs /app/data && chown -R appuser:appgroup /app
 
 COPY --from=builder /app/nebula-backend-server .
 
+# Uncomment the below line to set to release mode
+# ENV GIN_MODE=release
 USER appuser
 
 EXPOSE 8080
 
-# HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
-#   CMD wget -qO- http://localhost:8080/health || exit 1
+VOLUME ["/app/data"]
 
 ENTRYPOINT ["./nebula-backend-server"]

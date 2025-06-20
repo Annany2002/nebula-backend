@@ -23,6 +23,7 @@ var (
 	ErrInvalidCredentials = errors.New("invalid credentials")
 	ErrConflict           = errors.New("cannot generate more than one api key for a database")
 	ErrAPIKeyGeneration   = errors.New("failed to generate api key components")
+	ErrAPIKeyNotFound     = errors.New("api key not found")
 )
 
 const apiKeyPrefix = "neb_"   // Prefix for nebula
@@ -242,7 +243,7 @@ func StoreAPIKey(ctx context.Context, db *sql.DB, userId string, databaseId int6
 	return key, nil
 }
 
-// FindAPIKeyByDatabaseId retrieves potential key  for a particular user
+// FindAPIKeyByDatabaseId retrieves potential key for a particular user
 func FindAPIKeyByDatabaseId(ctx context.Context, db *sql.DB, databaseId int64) (string, error) {
 	query := `SELECT key FROM api_keys WHERE api_database_id = ?;`
 	rows, err := db.QueryContext(ctx, query, databaseId)
@@ -269,4 +270,29 @@ func FindAPIKeyByDatabaseId(ctx context.Context, db *sql.DB, databaseId int64) (
 
 	// Returns empty slice if no keys found for the prefix
 	return key, nil
+}
+
+// DeleteAPIKey deletes the api key from the database
+func DeleteAPIKey(ctx context.Context, db *sql.DB, key string) error {
+	deleteSQL := `DELETE FROM api_keys WHERE key = ?`
+
+	result, err := db.ExecContext(ctx, deleteSQL, key)
+	if err != nil {
+
+		customLog.Warnf("Storage: Error executing delete api key : %s, DB ", key)
+		return fmt.Errorf("database error deleting registration: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		customLog.Warnf("Storage: Error getting RowsAffected for delete api key : %s", key)
+		return fmt.Errorf("failed confirming registration deletion: %w", err)
+	}
+
+	if rowsAffected == 0 {
+		// No rows matched
+		return ErrAPIKeyNotFound
+	}
+
+	return nil // Success
 }

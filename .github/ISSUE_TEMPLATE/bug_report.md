@@ -1,5 +1,6 @@
 ---
 name: "🐛 Bug Report"
+about: Report a problem or unexpected behavior
 description: "Create a report to help us improve."
 title: "[BUG]: "
 labels: ["bug", "help wanted"]

@@ -1,5 +1,6 @@
 ---
 name: "🚀 Feature Request"
+about: Suggest an idea or request a feature
 description: "Suggest an idea or new functionality for this project."
 title: "[FEAT]: "
 labels: ["enhancement", "good first issue"]
