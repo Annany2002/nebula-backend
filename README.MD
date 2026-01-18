@@ -59,6 +59,7 @@ This project demonstrates the core concepts of a BaaS, allowing authenticated us
 - **CORS:** `github.com/gin-contrib/cors`
 - **Rate Limiting:** Custom Middleware
 - **Logging:** Custom Structured Logger (`internal/logger`)
+- **Linting:** golangci-lint
 - **Testing:** Go standard `testing`, `net/http/httptest`, `github.com/stretchr/testify/assert`
 
 ## Setup & Running
@@ -119,20 +120,26 @@ This will stop and remove all containers defined in the `docker-compose.yml` fil
 We welcome contributions!
 Please check out the following before opening an issue or PR:
 
-- [📜 Contribution Guide](./CONTRIBUTING.md)
-- [🐞 Bug Report Template](.github/ISSUE_TEMPLATE/bug_report.yaml)
-- [✨ Feature Request Template](.github/ISSUE_TEMPLATE/feature_request.yaml)
-- [🔁 Pull Request Template](.github/PULL_REQUEST_TEMPLATE.md)
+- [Contribution Guide](./CONTRIBUTING.md)
+- [Bug Report Template](.github/ISSUE_TEMPLATE/bug_report.yaml)
+- [Feature Request Template](.github/ISSUE_TEMPLATE/feature_request.yaml)
+- [Pull Request Template](.github/PULL_REQUEST_TEMPLATE.md)
 
 To begin:
 
 ```bash
 # Fork + Clone
 # Create a new branch
-git checkout -b feat/improve-auth-ui
+git checkout -b feat/your-feature
 
-# After changes:
-air  # start the local development server
+# Install dev tools
+make install-tools
+
+# Run checks before committing
+make check
+
+# Start dev server with hot-reload
+air
 ```
 
 ## License
@@ -141,4 +148,4 @@ This project is licensed under the MIT License. See [LICENSE](https://github.com
 
 ## Acknowledgements
 
-Thanks for checking out Nebula Backend! Join us in building a developer-friendly, open-source BaaS ✨
+Thanks for checking out Nebula Backend! Join us in building a developer-friendly, open-source BaaS.
