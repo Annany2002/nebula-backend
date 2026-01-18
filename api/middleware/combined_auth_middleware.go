@@ -60,7 +60,7 @@ func CombinedAuthMiddleware(db *sql.DB, cfg *config.Config) gin.HandlerFunc {
 			}
 
 			// Find database ID from the API key
-			apiKeyQuery := `SELECT api_database_id, api_owner_id FROM api_keys WHERE key = ?`
+			apiKeyQuery := `SELECT api_database_id, api_owner_id FROM api_keys WHERE key = ?` //nolint:gosec // G101 false positive - not credentials
 			row := db.QueryRow(apiKeyQuery, credentials)
 
 			err := row.Scan(&databaseId, &userId)
