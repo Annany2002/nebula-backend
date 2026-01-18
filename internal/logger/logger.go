@@ -35,7 +35,7 @@ func NewLogger() *Logger {
 		logrus.Fatalf("Failed to create log directory: %v", err)
 	}
 
-	file, err := os.OpenFile(logFilePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+	file, err := os.OpenFile(logFilePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o666)
 	if err != nil {
 		logrus.Fatalf("Failed to open log file: %v", err)
 	}

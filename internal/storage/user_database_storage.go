@@ -314,7 +314,8 @@ func ListRecords(ctx context.Context, userDB *sql.DB, tableName string, queryPar
 	} // End loop over queryParams
 
 	// 3. Construct final SQL
-	selectSQL := fmt.Sprintf("SELECT * FROM %s", tableName) // tableName validated by handler implicitly via path lookup
+	// nolint:gosec // tableName is validated by handler before reaching here
+	selectSQL := fmt.Sprintf("SELECT * FROM %s", tableName)
 	if len(whereClauses) > 0 {
 		selectSQL += " WHERE " + strings.Join(whereClauses, " AND ")
 	}

@@ -84,6 +84,7 @@ func ConnectMetadataDB(cfg *config.Config) (*sql.DB, error) {
 	// db.SetConnMaxLifetime(5*time.Minute)
 
 	// Ensure 'api_keys' table  ---
+	// nolint:gosec // G101 false positive - this is table schema, not hardcoded credentials
 	createAPIKeysTableSQL := `
 	CREATE TABLE IF NOT EXISTS api_keys (
 		api_key_id INTEGER PRIMARY KEY AUTOINCREMENT,

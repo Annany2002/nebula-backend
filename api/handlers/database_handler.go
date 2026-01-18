@@ -51,12 +51,12 @@ func (h *DatabaseHandler) CreateDatabase(c *gin.Context) {
 	}
 
 	// Construct file path
-	userDbDir := filepath.Join(h.Cfg.MetadataDbDir, fmt.Sprintf("%s", userId))
+	userDbDir := filepath.Join(h.Cfg.MetadataDbDir, userId)
 	dbFilePath := filepath.Join(userDbDir, req.DBName+".db")
 
 	// Ensure user directory exists (moved from handler to make it more reusable?)
 	// Or keep it here as it's tied to the registration action. Let's keep it here.
-	if err := os.MkdirAll(userDbDir, 0750); err != nil {
+	if err := os.MkdirAll(userDbDir, 0o750); err != nil {
 		customLog.Warnf("Create DB: Error creating user DB directory '%s': %v", userDbDir, err)
 		_ = c.Error(fmt.Errorf("storage setup error: %w", err))
 		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to create database storage location"})
@@ -285,7 +285,8 @@ func (h *DatabaseHandler) GetSchema(c *gin.Context) {
 	// Connect to the user's DB file
 	userDB, err := storage.ConnectUserDB(c.Request.Context(), dbFilePath)
 	if err != nil {
-		c.AbortWithError(http.StatusInternalServerError, err)
+		_ = c.AbortWithError(http.StatusInternalServerError, err)
+		return
 	}
 
 	defer userDB.Close()

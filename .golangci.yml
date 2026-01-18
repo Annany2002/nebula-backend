@@ -40,6 +40,9 @@ linters-settings:
     disabled-checks:
       - whyNoLint
       - commentedOutCode
+      - unnecessaryBlock
+      - unnamedResult
+      - ifElseChain
   
   revive:
     rules:

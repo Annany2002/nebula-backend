@@ -22,7 +22,7 @@ var AllowedColumnTypes = map[string]string{
 // Applies basic format and length checks.
 func IsValidIdentifier(name string) bool {
 	// Consider adding min length if needed, adjust max length as appropriate
-	return nameValidationRegex.MatchString(name) && len(name) > 0 && len(name) <= 64
+	return nameValidationRegex.MatchString(name) && name != "" && len(name) <= 64
 }
 
 // NormalizeAndValidateType checks if a string is an allowed column type, returning the normalized uppercase version.
