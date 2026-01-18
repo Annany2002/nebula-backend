@@ -24,7 +24,7 @@ func ConnectMetadataDB(cfg *config.Config) (*sql.DB, error) {
 	customLog.Printf("Storage: Initializing metadata database: %s", dbPath)
 
 	// Ensure the data directory exists
-	if err := os.MkdirAll(cfg.MetadataDbDir, 0750); err != nil {
+	if err := os.MkdirAll(cfg.MetadataDbDir, 0o750); err != nil {
 		customLog.Warnf("Storage: Error creating data directory '%s': %v", cfg.MetadataDbDir, err)
 		return nil, fmt.Errorf("failed to create data directory: %w", err)
 	}

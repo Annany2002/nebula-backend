@@ -2,8 +2,9 @@
 package models
 
 import (
-	"github.com/Annany2002/nebula-backend/internal/domain"
 	"github.com/golang-jwt/jwt/v5"
+
+	"github.com/Annany2002/nebula-backend/internal/domain"
 )
 
 // --- Auth Request/Response Structs ---

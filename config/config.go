@@ -6,8 +6,9 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/Annany2002/nebula-backend/internal/logger"
 	"github.com/joho/godotenv"
+
+	"github.com/Annany2002/nebula-backend/internal/logger"
 )
 
 var (

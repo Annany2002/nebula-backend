@@ -39,6 +39,7 @@ linters-settings:
       - performance
     disabled-checks:
       - whyNoLint
+      - commentedOutCode
   
   revive:
     rules:

@@ -10,8 +10,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/Annany2002/nebula-backend/internal/domain"
 	"github.com/mattn/go-sqlite3"
+
+	"github.com/Annany2002/nebula-backend/internal/domain"
 )
 
 // Specific errors for metadata operations
@@ -26,8 +27,8 @@ var (
 	ErrAPIKeyNotFound     = errors.New("api key not found")
 )
 
-const apiKeyPrefix = "neb_"   // Prefix for nebula
-const apiKeySecretLength = 32 // Length of the random secret part in bytes
+const authKeyPrefixMeta = "neb_" // nolint:gosec // API key prefix identifier, not a secret
+const apiKeySecretLength = 32    // Length of the random secret part in bytes
 
 // --- User Operations ---
 
@@ -143,20 +144,20 @@ func ListUserDatabases(ctx context.Context, db *sql.DB, userId string) ([]domain
 			continue
 			// return nil, ErrTableNotFound
 		}
-		defer userSingleDb.Close()
 
-		err = userSingleDb.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table';").Scan(&singleDb.Tables)
-		if err != nil {
+		if err := userSingleDb.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table';").Scan(&singleDb.Tables); err != nil {
 			customLog.Warnf("Error counting tables in %s: %v\n", singleDb.FilePath, err)
-			continue // Skip to the next database
+			userSingleDb.Close()
+			continue
 		}
+		userSingleDb.Close()
 
-		api_key, err := FindAPIKeyByDatabaseId(ctx, db, singleDb.DatabaseID)
+		apiKey, err := FindAPIKeyByDatabaseId(ctx, db, singleDb.DatabaseID)
 		if err != nil {
 			customLog.Warnf("Error in retrieving api keys for %s: %v", singleDb.DBName, err)
 		}
 
-		singleDb.APIKey = api_key
+		singleDb.APIKey = apiKey
 		userDb = append(userDb, singleDb)
 	}
 	if err = rows.Err(); err != nil {
@@ -198,7 +199,7 @@ func DeleteDatabaseRegistration(ctx context.Context, db *sql.DB, userId, dbName 
 
 // FindDatabaseIDByNameAndUser retrieves the ID of a database owned by a specific user.
 // Returns the database ID or ErrDatabaseNotFound if no match.
-func FindDatabaseIDByNameAndUser(ctx context.Context, db *sql.DB, userId string, dbName string) (int64, error) {
+func FindDatabaseIDByNameAndUser(ctx context.Context, db *sql.DB, userId, dbName string) (int64, error) {
 	var databaseId int64
 	query := `SELECT database_id FROM databases WHERE owner_id = ? AND db_name = ? LIMIT 1;`
 	err := db.QueryRowContext(ctx, query, userId, dbName).Scan(&databaseId)
@@ -226,7 +227,7 @@ func StoreAPIKey(ctx context.Context, db *sql.DB, userId string, databaseId int6
 	// Encode random bytes to a URL-safe base64 string for the secret part
 	secret := base64.RawURLEncoding.EncodeToString(randomBytes)
 
-	key := apiKeyPrefix + secret
+	key := authKeyPrefixMeta + secret
 	// Store the prefix, HASHED secret, and other details in the DB
 	insertSQL := `INSERT INTO api_keys (api_owner_id, api_database_id, key) VALUES (?, ?, ?);`
 	_, err = db.ExecContext(ctx, insertSQL, userId, databaseId, key)

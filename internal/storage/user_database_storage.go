@@ -10,9 +10,10 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/mattn/go-sqlite3"
+
 	"github.com/Annany2002/nebula-backend/internal/core" // Import core for validation
 	"github.com/Annany2002/nebula-backend/internal/domain"
-	"github.com/mattn/go-sqlite3"
 )
 
 // Specific errors for user DB operations

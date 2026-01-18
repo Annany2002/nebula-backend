@@ -52,7 +52,7 @@ func CheckPasswordHash(password, hash string) bool {
 // --- JWT Utilities ---
 
 // GenerateJWT creates a signed JWT string for a given userID
-func GenerateJWT(userID string, jwtSecret string, jwtExpiration time.Duration) (string, error) {
+func GenerateJWT(userID, jwtSecret string, jwtExpiration time.Duration) (string, error) {
 	// Set custom and standard claims
 	claims := models.CustomClaims{ // Using the DTO struct from api/models
 		UserID: userID,
@@ -78,7 +78,7 @@ func GenerateJWT(userID string, jwtSecret string, jwtExpiration time.Duration) (
 }
 
 // ValidateJWT parses and validates a JWT string, returning the UserID if valid.
-func ValidateJWT(tokenString string, jwtSecret string) (string, error) {
+func ValidateJWT(tokenString, jwtSecret string) (string, error) {
 	claims := &models.CustomClaims{} // Use pointer to the DTO struct
 
 	token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
@@ -95,14 +95,14 @@ func ValidateJWT(tokenString string, jwtSecret string) (string, error) {
 	// Handle parsing errors, mapping library errors to our defined errors
 	if err != nil {
 		customLog.Warnf("ValidateJWT: Token parsing error: %v", err)
-		if errors.Is(err, jwt.ErrTokenMalformed) {
+		switch {
+		case errors.Is(err, jwt.ErrTokenMalformed):
 			return "", ErrTokenMalformed
-		} else if errors.Is(err, jwt.ErrTokenExpired) || errors.Is(err, jwt.ErrTokenNotValidYet) {
+		case errors.Is(err, jwt.ErrTokenExpired), errors.Is(err, jwt.ErrTokenNotValidYet):
 			return "", ErrTokenExpired
-		} else if errors.Is(err, ErrUnexpectedSigningMethod) {
-			return "", err // Return the wrapped error directly
-		} else {
-			// Other errors (e.g., signature invalid)
+		case errors.Is(err, ErrUnexpectedSigningMethod):
+			return "", err
+		default:
 			return "", ErrTokenInvalid
 		}
 	}
