@@ -1,0 +1,219 @@
+---
+title: Records
+description: "CRUD operations on table records"
+---
+
+# Record Operations
+
+Create, read, update, and delete records in your tables.
+
+## Create Record
+
+Insert a new record into a table.
+
+**Endpoint:** `POST /api/v1/databases/:db_name/tables/:table_name/records`
+
+<ParamField path="db_name" type="string" required>
+  Database name
+</ParamField>
+
+<ParamField path="table_name" type="string" required>
+  Table name
+</ParamField>
+
+The request body should contain field-value pairs matching the table schema.
+
+<RequestExample>
+```bash cURL
+curl -X POST http://localhost:8080/api/v1/databases/mydb/tables/users/records \
+  -H "Authorization: Bearer <your-jwt-token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "John Doe",
+    "email": "john@example.com",
+    "age": 30,
+    "balance": 100.50
+  }'
+```
+</RequestExample>
+
+<ResponseExample>
+```json 201 Created
+{
+  "message": "Record created",
+  "id": 1
+}
+```
+
+```json 400 Bad Request
+{
+  "error": "Invalid type for column 'age': expected INTEGER"
+}
+```
+</ResponseExample>
+
+---
+
+## List Records
+
+Get all records from a table with optional filtering.
+
+**Endpoint:** `GET /api/v1/databases/:db_name/tables/:table_name/records`
+
+<ParamField path="db_name" type="string" required>
+  Database name
+</ParamField>
+
+<ParamField path="table_name" type="string" required>
+  Table name
+</ParamField>
+
+<ParamField query="column" type="string">
+  Filter by column value. Use format `?column=value`
+</ParamField>
+
+<RequestExample>
+```bash cURL (All records)
+curl http://localhost:8080/api/v1/databases/mydb/tables/users/records \
+  -H "Authorization: Bearer <your-jwt-token>"
+```
+
+```bash cURL (Filtered)
+curl "http://localhost:8080/api/v1/databases/mydb/tables/users/records?name=John%20Doe" \
+  -H "Authorization: Bearer <your-jwt-token>"
+```
+</RequestExample>
+
+<ResponseExample>
+```json 200 OK
+{
+  "records": [
+    {
+      "id": 1,
+      "name": "John Doe",
+      "email": "john@example.com",
+      "age": 30,
+      "balance": 100.50
+    },
+    {
+      "id": 2,
+      "name": "Jane Smith",
+      "email": "jane@example.com",
+      "age": 25,
+      "balance": 250.00
+    }
+  ]
+}
+```
+</ResponseExample>
+
+---
+
+## Get Record
+
+Retrieve a single record by ID.
+
+**Endpoint:** `GET /api/v1/databases/:db_name/tables/:table_name/records/:record_id`
+
+<ParamField path="record_id" type="integer" required>
+  Record ID
+</ParamField>
+
+<RequestExample>
+```bash cURL
+curl http://localhost:8080/api/v1/databases/mydb/tables/users/records/1 \
+  -H "Authorization: Bearer <your-jwt-token>"
+```
+</RequestExample>
+
+<ResponseExample>
+```json 200 OK
+{
+  "id": 1,
+  "name": "John Doe",
+  "email": "john@example.com",
+  "age": 30,
+  "balance": 100.50
+}
+```
+
+```json 404 Not Found
+{
+  "error": "Record not found"
+}
+```
+</ResponseExample>
+
+---
+
+## Update Record
+
+Update an existing record.
+
+**Endpoint:** `PUT /api/v1/databases/:db_name/tables/:table_name/records/:record_id`
+
+<ParamField path="record_id" type="integer" required>
+  Record ID to update
+</ParamField>
+
+<RequestExample>
+```bash cURL
+curl -X PUT http://localhost:8080/api/v1/databases/mydb/tables/users/records/1 \
+  -H "Authorization: Bearer <your-jwt-token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "balance": 150.75
+  }'
+```
+</RequestExample>
+
+<ResponseExample>
+```json 200 OK
+{
+  "message": "Record updated successfully"
+}
+```
+
+```json 404 Not Found
+{
+  "error": "Record not found"
+}
+```
+</ResponseExample>
+
+<Note>
+  You only need to include fields you want to update. Unspecified fields remain unchanged.
+</Note>
+
+---
+
+## Delete Record
+
+Remove a record from a table.
+
+**Endpoint:** `DELETE /api/v1/databases/:db_name/tables/:table_name/records/:record_id`
+
+<ParamField path="record_id" type="integer" required>
+  Record ID to delete
+</ParamField>
+
+<RequestExample>
+```bash cURL
+curl -X DELETE http://localhost:8080/api/v1/databases/mydb/tables/users/records/1 \
+  -H "Authorization: Bearer <your-jwt-token>"
+```
+</RequestExample>
+
+<ResponseExample>
+```json 200 OK
+{
+  "message": "Record deleted successfully"
+}
+```
+
+```json 404 Not Found
+{
+  "error": "Record not found"
+}
+```
+</ResponseExample>

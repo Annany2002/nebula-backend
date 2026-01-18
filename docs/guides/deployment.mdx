@@ -1,0 +1,126 @@
+---
+title: Deployment
+description: "Deploy Nebula with Docker and Kubernetes"
+---
+
+# Deployment
+
+Deploy Nebula using Docker, Docker Compose, or Kubernetes.
+
+## Docker Compose (Recommended)
+
+The easiest way to run Nebula locally or in development.
+
+<Steps>
+  <Step title="Configure environment">
+    ```bash
+    cp .env.example .env
+    # Edit .env with your settings
+    ```
+  </Step>
+  
+  <Step title="Start services">
+    ```bash
+    docker-compose up --build
+    ```
+    
+    This starts:
+    - **Backend API** on port `8080`
+    - **Documentation** on port `3000`
+  </Step>
+  
+  <Step title="Verify">
+    ```bash
+    curl http://localhost:8080/ping
+    # Returns: pong
+    ```
+  </Step>
+</Steps>
+
+### Stop Services
+
+```bash
+docker-compose down
+```
+
+---
+
+## Docker Only
+
+Build and run the backend container manually.
+
+```bash
+# Build
+docker build -t nebula-backend .
+
+# Run
+docker run -d \
+  --name nebula \
+  -p 8080:8080 \
+  -v $(pwd)/data:/app/data \
+  --env-file .env \
+  nebula-backend
+```
+
+---
+
+## Kubernetes
+
+For production deployments, use Kubernetes with the provided manifests.
+
+### Required Resources
+
+| Resource | Purpose |
+|----------|---------|
+| `Deployment` | Run backend pods |
+| `Service` | Internal networking |
+| `Ingress` | External access + TLS |
+| `PersistentVolumeClaim` | SQLite data storage |
+| `Secret` | JWT secret, credentials |
+| `ConfigMap` | Non-sensitive config |
+
+### Data Persistence
+
+<Warning>
+  SQLite data **must** be stored on a Persistent Volume. Mount it at `/app/data` in the container.
+</Warning>
+
+```yaml
+volumes:
+  - name: data
+    persistentVolumeClaim:
+      claimName: nebula-data-pvc
+
+volumeMounts:
+  - name: data
+    mountPath: /app/data
+```
+
+### Considerations
+
+<AccordionGroup>
+  <Accordion title="Scaling">
+    SQLite limits horizontal scaling due to single-writer constraints. For high-load production, migrate to PostgreSQL.
+  </Accordion>
+  
+  <Accordion title="Volume Type">
+    Use `ReadWriteOnce` (RWO) volumes like EBS. For multi-node writes, consider EFS or a shared filesystem.
+  </Accordion>
+  
+  <Accordion title="TLS/SSL">
+    Terminate TLS at the Ingress controller. Use cert-manager for automatic certificate management.
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Production Checklist
+
+<Checklist>
+  <Check>Set a strong, unique `JWT_SECRET`</Check>
+  <Check>Configure appropriate `ALLOWED_ORIGINS`</Check>
+  <Check>Enable TLS/HTTPS</Check>
+  <Check>Set up persistent storage for `/app/data`</Check>
+  <Check>Configure backup strategy for SQLite files</Check>
+  <Check>Set up monitoring and logging</Check>
+</Checklist>

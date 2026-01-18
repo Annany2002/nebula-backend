@@ -1,0 +1,84 @@
+---
+title: Tables
+description: "List and delete tables"
+---
+
+# Table Management
+
+List tables in a database and delete tables.
+
+## List Tables
+
+Get all tables in a database.
+
+**Endpoint:** `GET /api/v1/databases/:db_name/tables`
+
+<ParamField path="db_name" type="string" required>
+  Database name
+</ParamField>
+
+<RequestExample>
+```bash cURL
+curl http://localhost:8080/api/v1/databases/mydb/tables \
+  -H "Authorization: Bearer <your-jwt-token>"
+```
+</RequestExample>
+
+<ResponseExample>
+```json 200 OK
+{
+  "tables": [
+    "users",
+    "products",
+    "orders"
+  ]
+}
+```
+
+```json 200 OK (Empty)
+{
+  "tables": []
+}
+```
+</ResponseExample>
+
+---
+
+## Delete Table
+
+Drop a table and all its data.
+
+**Endpoint:** `DELETE /api/v1/databases/:db_name/tables/:table_name`
+
+<ParamField path="db_name" type="string" required>
+  Database name
+</ParamField>
+
+<ParamField path="table_name" type="string" required>
+  Table name to delete
+</ParamField>
+
+<RequestExample>
+```bash cURL
+curl -X DELETE http://localhost:8080/api/v1/databases/mydb/tables/users \
+  -H "Authorization: Bearer <your-jwt-token>"
+```
+</RequestExample>
+
+<ResponseExample>
+```json 200 OK
+{
+  "message": "Table deleted successfully"
+}
+```
+
+```json 404 Not Found
+{
+  "error": "Table not found"
+}
+```
+</ResponseExample>
+
+<Warning>
+  Deleting a table **permanently removes** all records in that table. This action cannot be undone.
+</Warning>

@@ -9,9 +9,19 @@ services:
       - ./data:/app/data
     networks:
       - app-network
-    expose:
-      - "8080"
+    ports:
+      - "8080:8080"
 
+  docs:
+    build:
+      context: ./docs
+      dockerfile: Dockerfile
+    volumes:
+      - ./docs:/docs
+    ports:
+      - "3000:3000"
+    networks:
+      - app-network
 
 networks:
   app-network:

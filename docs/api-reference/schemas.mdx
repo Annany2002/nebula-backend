@@ -1,0 +1,124 @@
+---
+title: Schemas
+description: "Define table schemas"
+---
+
+# Schema Management
+
+Create table schemas and retrieve schema information.
+
+## Create Schema
+
+Define a new table with a custom schema.
+
+**Endpoint:** `POST /api/v1/databases/:db_name/schema`
+
+<ParamField path="db_name" type="string" required>
+  Target database name
+</ParamField>
+
+<ParamField body="table_name" type="string" required>
+  Name for the new table
+</ParamField>
+
+<ParamField body="columns" type="array" required>
+  Array of column definitions
+</ParamField>
+
+### Column Definition
+
+Each column requires:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | string | Column name |
+| `type` | string | SQLite type: `TEXT`, `INTEGER`, `REAL`, `BLOB` |
+
+<RequestExample>
+```bash cURL
+curl -X POST http://localhost:8080/api/v1/databases/mydb/schema \
+  -H "Authorization: Bearer <your-jwt-token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "table_name": "users",
+    "columns": [
+      {"name": "name", "type": "TEXT"},
+      {"name": "email", "type": "TEXT"},
+      {"name": "age", "type": "INTEGER"},
+      {"name": "balance", "type": "REAL"}
+    ]
+  }'
+```
+</RequestExample>
+
+<ResponseExample>
+```json 201 Created
+{
+  "message": "Table created successfully",
+  "table": "users"
+}
+```
+
+```json 400 Bad Request
+{
+  "error": "Invalid column type: VARCHAR"
+}
+```
+
+```json 409 Conflict
+{
+  "error": "Table already exists"
+}
+```
+</ResponseExample>
+
+<Note>
+  An `id` column is automatically created as the primary key (INTEGER AUTOINCREMENT).
+</Note>
+
+---
+
+## Get Schema
+
+Retrieve the schema of an existing table.
+
+**Endpoint:** `GET /api/v1/databases/:db_name/tables/:table_name/schema`
+
+<ParamField path="db_name" type="string" required>
+  Database name
+</ParamField>
+
+<ParamField path="table_name" type="string" required>
+  Table name
+</ParamField>
+
+<RequestExample>
+```bash cURL
+curl http://localhost:8080/api/v1/databases/mydb/tables/users/schema \
+  -H "Authorization: Bearer <your-jwt-token>"
+```
+</RequestExample>
+
+<ResponseExample>
+```json 200 OK
+{
+  "table": "users",
+  "columns": [
+    {"name": "id", "type": "INTEGER", "primary_key": true},
+    {"name": "name", "type": "TEXT", "primary_key": false},
+    {"name": "email", "type": "TEXT", "primary_key": false},
+    {"name": "age", "type": "INTEGER", "primary_key": false},
+    {"name": "balance", "type": "REAL", "primary_key": false}
+  ]
+}
+```
+</ResponseExample>
+
+## Supported Types
+
+| Type | Description | Example Values |
+|------|-------------|----------------|
+| `TEXT` | String data | `"hello"`, `"user@example.com"` |
+| `INTEGER` | Whole numbers | `1`, `42`, `-100` |
+| `REAL` | Floating point | `3.14`, `99.99` |
+| `BLOB` | Binary data | Base64 encoded strings |

@@ -1,0 +1,115 @@
+---
+title: Authentication
+description: "User registration and login endpoints"
+---
+
+# Authentication
+
+Register users and obtain JWT tokens for API access.
+
+## Sign Up
+
+Create a new user account.
+
+<ParamField body="email" type="string" required>
+  User's email address (must be valid email format)
+</ParamField>
+
+<ParamField body="username" type="string" required>
+  Username (minimum 6 characters)
+</ParamField>
+
+<ParamField body="password" type="string" required>
+  Password (minimum 8 characters)
+</ParamField>
+
+<RequestExample>
+```bash cURL
+curl -X POST http://localhost:8080/auth/signup \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "user@example.com",
+    "username": "myusername",
+    "password": "securepassword123"
+  }'
+```
+</RequestExample>
+
+<ResponseExample>
+```json 201 Created
+{
+  "message": "User created successfully",
+  "user": {
+    "id": "usr_abc123",
+    "email": "user@example.com",
+    "username": "myusername"
+  }
+}
+```
+
+```json 400 Bad Request
+{
+  "error": "Email already exists"
+}
+```
+</ResponseExample>
+
+---
+
+## Login
+
+Authenticate and receive a JWT token.
+
+<ParamField body="email" type="string" required>
+  User's email address
+</ParamField>
+
+<ParamField body="password" type="string" required>
+  User's password
+</ParamField>
+
+<RequestExample>
+```bash cURL
+curl -X POST http://localhost:8080/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "user@example.com",
+    "password": "securepassword123"
+  }'
+```
+</RequestExample>
+
+<ResponseExample>
+```json 200 OK
+{
+  "message": "Login successful",
+  "user": {
+    "id": "usr_abc123",
+    "email": "user@example.com",
+    "username": "myusername"
+  },
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+}
+```
+
+```json 401 Unauthorized
+{
+  "error": "Invalid credentials"
+}
+```
+</ResponseExample>
+
+---
+
+## Using the Token
+
+Include the JWT token in subsequent API requests:
+
+```bash
+curl http://localhost:8080/api/v1/databases \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+```
+
+<Note>
+  JWT tokens expire based on the `JWT_EXPIRATION_HOURS` configuration (default: 24 hours).
+</Note>

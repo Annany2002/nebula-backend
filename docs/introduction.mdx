@@ -1,0 +1,69 @@
+---
+title: Introduction
+description: "Welcome to Nebula - Your Backend-as-a-Service Solution"
+---
+
+# What is Nebula?
+
+Nebula is an open-source **Backend-as-a-Service (BaaS)** built with Go that provides essential backend infrastructure for your applications. It allows you to quickly bootstrap applications with authentication, dynamic database management, and RESTful APIs.
+
+<CardGroup cols={2}>
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Get up and running in minutes
+  </Card>
+  <Card title="API Reference" icon="code" href="/api-reference/overview">
+    Explore the complete API
+  </Card>
+  <Card title="Architecture" icon="diagram-project" href="/architecture">
+    Understand how Nebula works
+  </Card>
+  <Card title="Contributing" icon="code-pull-request" href="/guides/contributing">
+    Join the community
+  </Card>
+</CardGroup>
+
+## Key Features
+
+<AccordionGroup>
+  <Accordion title="Dual Authentication" icon="shield-halved">
+    - **JWT Tokens** for user management and account operations
+    - **API Keys** for database-scoped programmatic access
+    - Secure password hashing with bcrypt
+  </Accordion>
+  
+  <Accordion title="Dynamic Database Management" icon="database">
+    - Create isolated SQLite databases per user
+    - Define custom table schemas on-the-fly
+    - Full CRUD operations on records
+  </Accordion>
+  
+  <Accordion title="Built-in Security" icon="lock">
+    - IP-based rate limiting
+    - CORS support with configurable origins
+    - Centralized error handling
+  </Accordion>
+  
+  <Accordion title="Container Ready" icon="docker">
+    - Docker and Docker Compose support
+    - Kubernetes deployment manifests
+    - Persistent volume support for data
+  </Accordion>
+</AccordionGroup>
+
+## Technology Stack
+
+| Component | Technology |
+|-----------|------------|
+| Language | Go 1.18+ |
+| Framework | Gin |
+| Database | SQLite |
+| Auth | JWT + API Keys |
+| Hashing | bcrypt |
+
+## Version
+
+Current version: **v0.2.0**
+
+<Note>
+  Nebula is under active development. Check the [GitHub repository](https://github.com/Annany2002/nebula-backend) for the latest updates.
+</Note>

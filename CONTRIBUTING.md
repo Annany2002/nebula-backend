@@ -84,11 +84,9 @@ To get Nebula running on your local machine for development:
 Once you have forked the repository, clone your fork to your local machine:
 
 ```bash
-git clone https://github.com/<YOUR_USERNAME>/nebula-backend.git
+git clone https://github.com/Annany2002/nebula-backend.git
 cd nebula-backend
 ```
-
-Replace `<YOUR_USERNAME>` with your actual GitHub username.
 
 ### Setting Up Your Environment
 
@@ -139,13 +137,43 @@ Nebula uses Go's standard `testing` package along with `net/http/httptest` and `
 To run all tests:
 
 ```bash
-go test ./...
+make test
+# or: go test ./...
 ```
 
 To run tests for a specific package, for example, the `auth` package:
 
 ```bash
 go test ./internal/auth
+```
+
+### Linting \u0026 Formatting
+
+This project uses [golangci-lint](https://golangci-lint.run/) for linting and `gofmt`/`goimports` for formatting.
+
+**Install tools:**
+```bash
+make install-tools
+```
+
+**Run linter:**
+```bash
+make lint
+```
+
+**Auto-fix lint issues:**
+```bash
+make lint-fix
+```
+
+**Format code:**
+```bash
+make fmt
+```
+
+**Run all checks (format, lint, test):**
+```bash
+make check
 ```
 
 ---

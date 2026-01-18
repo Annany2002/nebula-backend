@@ -1,0 +1,116 @@
+---
+title: Contributing
+description: "How to contribute to Nebula"
+---
+
+# Contributing
+
+We welcome contributions to Nebula! Here's how you can help.
+
+## Ways to Contribute
+
+<CardGroup cols={3}>
+  <Card title="Report Bugs" icon="bug">
+    Found a bug? Open an issue
+  </Card>
+  <Card title="Suggest Features" icon="lightbulb">
+    Have an idea? Let us know
+  </Card>
+  <Card title="Submit Code" icon="code">
+    Fix bugs or add features
+  </Card>
+</CardGroup>
+
+## Getting Started
+
+<Steps>
+  <Step title="Fork the Repository">
+    Click **Fork** on the [GitHub repository](https://github.com/Annany2002/nebula-backend)
+  </Step>
+  
+  <Step title="Clone Your Fork">
+    ```bash
+    git clone https://github.com/Annany2002/nebula-backend.git
+    cd nebula-backend
+    ```
+  </Step>
+  
+  <Step title="Set Up Environment">
+    ```bash
+    cp .env.example .env
+    # Edit .env with a test JWT_SECRET
+    ```
+  </Step>
+  
+  <Step title="Create a Branch">
+    ```bash
+    git checkout -b feat/your-feature-name
+    # or
+    git checkout -b fix/your-bug-fix
+    ```
+  </Step>
+  
+  <Step title="Run Locally">
+    ```bash
+    # Using air for hot-reload
+    air
+    
+    # Or with Docker
+    docker-compose up --build
+    ```
+  </Step>
+</Steps>
+
+## Running Tests
+
+```bash
+# All tests
+make test
+
+# Specific package
+go test ./internal/auth
+```
+
+## Linting \u0026 Formatting
+
+```bash
+# Install tools
+make install-tools
+
+# Run linter
+make lint
+
+# Format code
+make fmt
+
+# Run all checks
+make check
+```
+
+## Submitting a Pull Request
+
+1. Ensure your code follows the [Go style guide](https://github.com/golang/go/wiki/CodeReviewComments)
+2. Run `go fmt` and `goimports`
+3. Write/update tests as needed
+4. Commit with conventional commit messages
+5. Push and open a PR
+
+### Commit Message Format
+
+Follow [Conventional Commits](https://www.conventionalcommits.org/):
+
+```
+feat: Add user registration endpoint
+fix: Correct typo in error message
+docs: Update README with setup instructions
+test: Add unit tests for auth
+refactor: Centralize error handling
+```
+
+## Code of Conduct
+
+Please be respectful and follow the [Contributor Covenant](https://www.contributor-covenant.org/version/2/1/code_of_conduct.html).
+
+## License
+
+By contributing, you agree that your contributions will be licensed under the [MIT License](https://github.com/Annany2002/nebula-backend/blob/main/LICENSE).

@@ -1,0 +1,117 @@
+---
+title: Databases
+description: "Create and manage databases"
+---
+
+# Database Management
+
+Create, list, and delete databases. Each database is an isolated SQLite file.
+
+<Note>
+  Database management requires **user-scoped authentication** (JWT Bearer token). API keys cannot create or delete databases.
+</Note>
+
+## Create Database
+
+Register a new database for the authenticated user.
+
+**Endpoint:** `POST /api/v1/databases`
+
+<ParamField body="db_name" type="string" required>
+  Name for the new database (alphanumeric and underscores only)
+</ParamField>
+
+<RequestExample>
+```bash cURL
+curl -X POST http://localhost:8080/api/v1/databases \
+  -H "Authorization: Bearer <your-jwt-token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "db_name": "my_app_db"
+  }'
+```
+</RequestExample>
+
+<ResponseExample>
+```json 201 Created
+{
+  "message": "Database created successfully",
+  "database": {
+    "name": "my_app_db"
+  }
+}
+```
+
+```json 409 Conflict
+{
+  "error": "Database already exists"
+}
+```
+</ResponseExample>
+
+---
+
+## List Databases
+
+Get all databases owned by the authenticated user.
+
+**Endpoint:** `GET /api/v1/databases`
+
+<RequestExample>
+```bash cURL
+curl http://localhost:8080/api/v1/databases \
+  -H "Authorization: Bearer <your-jwt-token>"
+```
+</RequestExample>
+
+<ResponseExample>
+```json 200 OK
+{
+  "databases": [
+    {
+      "name": "my_app_db"
+    },
+    {
+      "name": "production_db"
+    }
+  ]
+}
+```
+</ResponseExample>
+
+---
+
+## Delete Database
+
+Delete a database and all its data.
+
+**Endpoint:** `DELETE /api/v1/databases/:db_name`
+
+<ParamField path="db_name" type="string" required>
+  Name of the database to delete
+</ParamField>
+
+<RequestExample>
+```bash cURL
+curl -X DELETE http://localhost:8080/api/v1/databases/my_app_db \
+  -H "Authorization: Bearer <your-jwt-token>"
+```
+</RequestExample>
+
+<ResponseExample>
+```json 200 OK
+{
+  "message": "Database deleted successfully"
+}
+```
+
+```json 404 Not Found
+{
+  "error": "Database not found"
+}
+```
+</ResponseExample>
+
+<Warning>
+  Deleting a database **permanently removes** all tables, records, and associated API keys. This action cannot be undone.
+</Warning>

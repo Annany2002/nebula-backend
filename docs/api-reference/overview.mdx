@@ -1,0 +1,112 @@
+---
+title: API Overview
+description: "Nebula REST API reference"
+---
+
+# API Overview
+
+Nebula provides a RESTful API for managing databases, schemas, tables, and records.
+
+## Base URL
+
+```
+http://localhost:8080
+```
+
+## Authentication
+
+Nebula supports two authentication methods:
+
+<CardGroup cols={2}>
+  <Card title="JWT Bearer Token" icon="key">
+    For user management operations
+    ```
+    Authorization: Bearer <token>
+    ```
+  </Card>
+  <Card title="API Key" icon="lock">
+    For database-scoped operations
+    ```
+    Authorization: ApiKey <key>
+    ```
+  </Card>
+</CardGroup>
+
+## Endpoints
+
+### Public Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/ping` | Health check (returns "pong") |
+| GET | `/health` | Server health status |
+| POST | `/auth/signup` | Register new user |
+| POST | `/auth/login` | Login and get JWT |
+
+### Protected Endpoints (require authentication)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/v1/health` | Auth health check |
+| GET | `/api/v1/user/:user_id` | Get user details |
+
+### Database Management
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/v1/databases` | List databases |
+| POST | `/api/v1/databases` | Create database |
+| DELETE | `/api/v1/databases/:db_name` | Delete database |
+
+### API Key Management (JWT only)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/v1/account/databases/:db_name/apikey` | Get API key info |
+| POST | `/api/v1/account/databases/:db_name/apikey` | Create API key |
+| DELETE | `/api/v1/account/databases/:db_name/apikey` | Delete API key |
+
+### Schema & Tables
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/v1/databases/:db_name/schema` | Create table schema |
+| GET | `/api/v1/databases/:db_name/tables/:table_name/schema` | Get schema |
+| GET | `/api/v1/databases/:db_name/tables` | List tables |
+| DELETE | `/api/v1/databases/:db_name/tables/:table_name` | Delete table |
+
+### Records (CRUD)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/v1/databases/:db_name/tables/:table_name/records` | Create record |
+| GET | `/api/v1/databases/:db_name/tables/:table_name/records` | List records |
+| GET | `/api/v1/databases/:db_name/tables/:table_name/records/:record_id` | Get record |
+| PUT | `/api/v1/databases/:db_name/tables/:table_name/records/:record_id` | Update record |
+| DELETE | `/api/v1/databases/:db_name/tables/:table_name/records/:record_id` | Delete record |
+
+## Rate Limiting
+
+API requests are rate-limited by IP address. If you exceed the limit, you'll receive a `429 Too Many Requests` response.
+
+## Error Responses
+
+All errors return JSON in this format:
+
+```json
+{
+  "error": "Error message description"
+}
+```
+
+Common status codes:
+
+| Code | Description |
+|------|-------------|
+| 400 | Bad Request - Invalid input |
+| 401 | Unauthorized - Missing/invalid auth |
+| 403 | Forbidden - Insufficient permissions |
+| 404 | Not Found - Resource doesn't exist |
+| 409 | Conflict - Resource already exists |
+| 429 | Too Many Requests - Rate limited |
+| 500 | Internal Server Error |

@@ -1,0 +1,122 @@
+---
+title: API Keys
+description: "Manage database-scoped API keys"
+---
+
+# API Keys
+
+Generate API keys for programmatic, database-scoped access. API keys provide access to a specific database without requiring the full user JWT.
+
+<Warning>
+  API key management requires **JWT authentication**. API keys cannot be used to manage other API keys.
+</Warning>
+
+## Create API Key
+
+Generate a new API key for a database.
+
+**Endpoint:** `POST /api/v1/account/databases/:db_name/apikey`
+
+**Authentication:** JWT Bearer token required
+
+<ParamField path="db_name" type="string" required>
+  Name of the database to create an API key for
+</ParamField>
+
+<RequestExample>
+```bash cURL
+curl -X POST http://localhost:8080/api/v1/account/databases/mydb/apikey \
+  -H "Authorization: Bearer <your-jwt-token>"
+```
+</RequestExample>
+
+<ResponseExample>
+```json 201 Created
+{
+  "api_key": "nbla_abc123def456ghi789jkl012mno345pqr678stu901",
+  "message": "API key created. Store it securely - it won't be shown again!"
+}
+```
+
+```json 404 Not Found
+{
+  "error": "Database not found"
+}
+```
+</ResponseExample>
+
+<Warning>
+  The API key is only shown **once** when created. Store it securely! If lost, you'll need to delete and create a new one.
+</Warning>
+
+---
+
+## Get API Key Info
+
+Check if an API key exists for a database.
+
+**Endpoint:** `GET /api/v1/account/databases/:db_name/apikey`
+
+**Authentication:** JWT Bearer token required
+
+<RequestExample>
+```bash cURL
+curl http://localhost:8080/api/v1/account/databases/mydb/apikey \
+  -H "Authorization: Bearer <your-jwt-token>"
+```
+</RequestExample>
+
+<ResponseExample>
+```json 200 OK
+{
+  "exists": true,
+  "prefix": "nbla_abc123"
+}
+```
+
+```json 200 OK (No key)
+{
+  "exists": false
+}
+```
+</ResponseExample>
+
+---
+
+## Delete API Key
+
+Revoke an API key for a database.
+
+**Endpoint:** `DELETE /api/v1/account/databases/:db_name/apikey`
+
+**Authentication:** JWT Bearer token required
+
+<RequestExample>
+```bash cURL
+curl -X DELETE http://localhost:8080/api/v1/account/databases/mydb/apikey \
+  -H "Authorization: Bearer <your-jwt-token>"
+```
+</RequestExample>
+
+<ResponseExample>
+```json 200 OK
+{
+  "message": "API key deleted successfully"
+}
+```
+</ResponseExample>
+
+---
+
+## Using API Keys
+
+Use the API key for database operations:
+
+```bash
+curl http://localhost:8080/api/v1/databases/mydb/tables \
+  -H "Authorization: ApiKey nbla_abc123def456ghi789jkl012mno345pqr678stu901"
+```
+
+<Note>
+  API keys are **database-scoped**. They can only access the specific database they were created for.
+</Note>

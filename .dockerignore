@@ -30,3 +30,6 @@ _test
 
 # for sqlite
 data
+
+# docs
+docs/

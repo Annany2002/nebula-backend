@@ -1,0 +1,96 @@
+---
+title: Configuration
+description: "Environment variables and settings"
+---
+
+# Configuration
+
+Nebula is configured via environment variables. Create a `.env` file or set them directly in your environment.
+
+## Environment Variables
+
+### Required
+
+<ParamField path="JWT_SECRET" required>
+  **Critical for security.** A strong, unique secret for signing JWT tokens.
+  
+  ```bash
+  JWT_SECRET=your-super-secret-key-minimum-32-characters
+  ```
+  
+  <Warning>
+    Use a cryptographically secure random string. Never commit this to version control.
+  </Warning>
+</ParamField>
+
+### Server
+
+<ParamField path="SERVER_PORT" default="8080">
+  Port the server listens on.
+  
+  ```bash
+  SERVER_PORT=8080
+  ```
+</ParamField>
+
+### Authentication
+
+<ParamField path="JWT_EXPIRATION_HOURS" default="24">
+  How long JWT tokens remain valid (in hours).
+  
+  ```bash
+  JWT_EXPIRATION_HOURS=24
+  ```
+</ParamField>
+
+### CORS
+
+<ParamField path="ALLOWED_ORIGINS">
+  Space-separated list of allowed origins for CORS.
+  
+  ```bash
+  ALLOWED_ORIGINS=http://localhost:3000 http://localhost:5173 https://myapp.com
+  ```
+</ParamField>
+
+## Example .env File
+
+```bash
+# Server
+SERVER_PORT=8080
+
+# Authentication
+JWT_SECRET=change-this-to-a-very-long-and-secure-random-string
+JWT_EXPIRATION_HOURS=24
+
+# CORS
+ALLOWED_ORIGINS=http://localhost:3000 http://localhost:5173
+```
+
+## Setup Steps
+
+<Steps>
+  <Step title="Copy example file">
+    ```bash
+    cp .env.example .env
+    ```
+  </Step>
+  
+  <Step title="Generate a secure JWT secret">
+    ```bash
+    # Using openssl
+    openssl rand -base64 32
+    
+    # Or using Python
+    python3 -c "import secrets; print(secrets.token_urlsafe(32))"
+    ```
+  </Step>
+  
+  <Step title="Edit .env with your values">
+    Update `JWT_SECRET` and `ALLOWED_ORIGINS` for your setup.
+  </Step>
+</Steps>
+
+<Note>
+  The `.env` file should already be in `.gitignore`. Never commit secrets to version control.
+</Note>
