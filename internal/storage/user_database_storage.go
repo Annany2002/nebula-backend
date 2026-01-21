@@ -366,7 +366,7 @@ func ListRecords(ctx context.Context, userDB *sql.DB, tableName string, queryPar
 	// Add ORDER BY clause
 	if opts.SortBy != "" {
 		orderDirection := "ASC"
-		if strings.ToLower(opts.SortOrder) == "desc" {
+		if strings.EqualFold(opts.SortOrder, "desc") {
 			orderDirection = "DESC"
 		}
 		selectSQL += fmt.Sprintf(" ORDER BY %s %s", opts.SortBy, orderDirection)
