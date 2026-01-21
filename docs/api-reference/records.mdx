@@ -56,7 +56,7 @@ curl -X POST http://localhost:8080/api/v1/databases/mydb/tables/users/records \
 
 ## List Records
 
-Get all records from a table with optional filtering.
+Get records from a table with optional filtering, pagination, sorting, and field selection.
 
 **Endpoint:** `GET /api/v1/databases/:db_name/tables/:table_name/records`
 
@@ -68,13 +68,40 @@ Get all records from a table with optional filtering.
   Table name
 </ParamField>
 
-<ParamField query="column" type="string">
-  Filter by column value. Use format `?column=value`
-</ParamField>
+### Query Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `limit` | integer | 100 | Maximum records to return (1-1000) |
+| `offset` | integer | 0 | Number of records to skip |
+| `sort` | string | `id` | Column name to sort by |
+| `order` | string | `asc` | Sort direction: `asc` or `desc` |
+| `fields` | string | (all) | Comma-separated list of columns to return |
+| `{column}` | string | - | Filter by column value (e.g., `?name=John`) |
 
 <RequestExample>
 ```bash cURL (All records)
 curl http://localhost:8080/api/v1/databases/mydb/tables/users/records \
+  -H "Authorization: Bearer <your-jwt-token>"
+```
+
+```bash cURL (Paginated)
+curl "http://localhost:8080/api/v1/databases/mydb/tables/users/records?limit=10&offset=20" \
+  -H "Authorization: Bearer <your-jwt-token>"
+```
+
+```bash cURL (Sorted)
+curl "http://localhost:8080/api/v1/databases/mydb/tables/users/records?sort=name&order=desc" \
+  -H "Authorization: Bearer <your-jwt-token>"
+```
+
+```bash cURL (Field Selection)
+curl "http://localhost:8080/api/v1/databases/mydb/tables/users/records?fields=id,name,email" \
+  -H "Authorization: Bearer <your-jwt-token>"
+```
+
+```bash cURL (Combined)
+curl "http://localhost:8080/api/v1/databases/mydb/tables/users/records?limit=10&sort=created_at&order=desc&fields=id,name" \
   -H "Authorization: Bearer <your-jwt-token>"
 ```
 
@@ -102,10 +129,25 @@ curl "http://localhost:8080/api/v1/databases/mydb/tables/users/records?name=John
       "age": 25,
       "balance": 250.00
     }
-  ]
+  ],
+  "pagination": {
+    "total": 100,
+    "limit": 10,
+    "offset": 0
+  }
+}
+```
+
+```json 400 Bad Request
+{
+  "error": "invalid 'limit' parameter: maximum is 1000"
 }
 ```
 </ResponseExample>
+
+<Note>
+  The `pagination.total` field contains the total count of records matching your filters, useful for calculating total pages.
+</Note>
 
 ---
 

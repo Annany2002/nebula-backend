@@ -24,7 +24,22 @@ var (
 	ErrTypeMismatch        = errors.New("datatype mismatch")                 // Derived
 	ErrConstraintViolation = errors.New("constraint violation")              // Derived
 	ErrInvalidFilterValue  = errors.New("invalid value provided for filter") // New error
+	ErrInvalidSortColumn   = errors.New("invalid sort column")
+	ErrInvalidFieldColumn  = errors.New("invalid field column")
 )
+
+// ListRecordsResult contains records and pagination metadata
+type ListRecordsResult struct {
+	Records    []map[string]any `json:"records"`
+	Pagination PaginationMeta   `json:"pagination"`
+}
+
+// PaginationMeta contains pagination information
+type PaginationMeta struct {
+	Total  int `json:"total"`
+	Limit  int `json:"limit"`
+	Offset int `json:"offset"`
+}
 
 // --- User DB Connection ---
 
@@ -231,30 +246,57 @@ func InsertRecord(ctx context.Context, userDB *sql.DB, insertSQL string, values 
 	return lastID, nil
 }
 
-// Accepts tableName and query parameters directly.
-func ListRecords(ctx context.Context, userDB *sql.DB, tableName string, queryParams url.Values) ([]map[string]any, error) {
+// ListRecords retrieves records with support for filtering, pagination, sorting, and field selection.
+// Accepts tableName, query parameters, and parsed query options.
+func ListRecords(ctx context.Context, userDB *sql.DB, tableName string, queryParams url.Values, opts *core.ListQueryOptions) (*ListRecordsResult, error) {
 
-	// 1. Fetch schema to validate filter keys and convert values
+	// 1. Fetch schema to validate filter keys, sort column, and field columns
 	columnTypes, err := PragmaTableInfo(ctx, userDB, tableName)
 	if err != nil {
 		return nil, err // Propagate ErrTableNotFound or other schema errors
 	}
 
-	// 2. Build WHERE clause and arguments from queryParams
+	// 2. Validate sort column exists in schema (if specified)
+	if opts.SortBy != "" {
+		if _, exists := columnTypes[strings.ToLower(opts.SortBy)]; !exists {
+			return nil, fmt.Errorf("%w: '%s' not found in table schema", ErrInvalidSortColumn, opts.SortBy)
+		}
+	}
+
+	// 3. Validate and build field list for SELECT
+	var selectFields string
+	if len(opts.Fields) > 0 {
+		validatedFields := make([]string, 0, len(opts.Fields))
+		for _, field := range opts.Fields {
+			if _, exists := columnTypes[strings.ToLower(field)]; !exists {
+				return nil, fmt.Errorf("%w: '%s' not found in table schema", ErrInvalidFieldColumn, field)
+			}
+			validatedFields = append(validatedFields, field)
+		}
+		selectFields = strings.Join(validatedFields, ", ")
+	} else {
+		selectFields = "*"
+	}
+
+	// 4. Build WHERE clause and arguments from queryParams (excluding reserved params)
 	whereClauses := []string{}
 	args := []any{}
 
 	for key, values := range queryParams {
-		if len(values) == 0 { // Should not happen with url.Values but check anyway
+		// Skip reserved parameters
+		if core.IsReservedParam(key) {
 			continue
 		}
-		filterValueStr := values[0] // Use only the first value for simple equality filter
+
+		if len(values) == 0 {
+			continue
+		}
+		filterValueStr := values[0]
 		lowerKey := strings.ToLower(key)
 
 		// A. Validate filter key format
 		if !core.IsValidIdentifier(key) {
 			customLog.Warnf("Storage: ListRecords received invalid filter key format: %s", key)
-			// *** CHANGED: Return error instead of ignoring ***
 			return nil, fmt.Errorf("%w: invalid filter key format '%s'", ErrInvalidFilterValue, key)
 		}
 
@@ -262,28 +304,20 @@ func ListRecords(ctx context.Context, userDB *sql.DB, tableName string, queryPar
 		expectedType, exists := columnTypes[lowerKey]
 		if !exists {
 			customLog.Warnf("Storage: ListRecords received filter key not in schema: %s", key)
-			// *** CHANGED: Return error instead of ignoring ***
 			return nil, fmt.Errorf("%w: filter key '%s' not found in table schema", ErrInvalidFilterValue, key)
 		}
 
-		// C. Attempt to convert filterValueStr to expected type (logic remains same)
+		// C. Attempt to convert filterValueStr to expected type
 		var convertedValue interface{}
 		var conversionError error
 
 		switch expectedType {
-		case "INTEGER", "BOOLEAN": // Treat boolean as integer for filtering
-			// Try parsing as int first
+		case "INTEGER", "BOOLEAN":
 			if vInt, err := strconv.ParseInt(filterValueStr, 10, 64); err == nil {
 				convertedValue = vInt
 			} else {
-				// Try parsing as bool (true/false -> 1/0) if original type was BOOLEAN
-				// (Note: columnTypes stores normalized types like INTEGER, need original schema maybe?)
-				// Let's keep it simple: if it's not a valid int, error out for INTEGER/BOOLEAN filter
 				conversionError = fmt.Errorf("expected an integer for column '%s'", key)
 			}
-			// If handling actual boolean input:
-			// else if expectedType == "BOOLEAN" { ... parse "true"/"false" ... }
-
 		case "REAL":
 			if vFloat, err := strconv.ParseFloat(filterValueStr, 64); err == nil {
 				convertedValue = vFloat
@@ -291,54 +325,78 @@ func ListRecords(ctx context.Context, userDB *sql.DB, tableName string, queryPar
 				conversionError = fmt.Errorf("expected a number (float) for column '%s'", key)
 			}
 		case "TEXT":
-			convertedValue = filterValueStr // Keep as string
+			convertedValue = filterValueStr
 		case "BLOB":
-			// Cannot reliably filter BLOBs with simple equality from URL param
 			customLog.Printf("Storage: ListRecords ignoring filter on BLOB column: %s", key)
-			continue // Skip BLOB filtering
+			continue
 		default:
 			customLog.Printf("Storage: ListRecords ignoring filter on column '%s' with unhandled type '%s'", key, expectedType)
-			continue // Skip unknown types
+			continue
 		}
 
 		if conversionError != nil {
 			customLog.Printf("Storage: ListRecords conversion error for key '%s', value '%s': %v", key, filterValueStr, conversionError)
-			return nil, fmt.Errorf("%w: %s", ErrInvalidFilterValue, conversionError.Error()) // Return specific error
+			return nil, fmt.Errorf("%w: %s", ErrInvalidFilterValue, conversionError.Error())
 		}
 
-		// C. Add to WHERE clause and arguments
-		// Use original key case from query param for the SQL column name for clarity
 		whereClauses = append(whereClauses, fmt.Sprintf("%s = ?", key))
 		args = append(args, convertedValue)
-
-	} // End loop over queryParams
-
-	// 3. Construct final SQL
-	// nolint:gosec // tableName is validated by handler before reaching here
-	selectSQL := fmt.Sprintf("SELECT * FROM %s", tableName)
-	if len(whereClauses) > 0 {
-		selectSQL += " WHERE " + strings.Join(whereClauses, " AND ")
 	}
-	selectSQL += ";" // End statement
+
+	// 5. Build WHERE clause string
+	whereClause := ""
+	if len(whereClauses) > 0 {
+		whereClause = " WHERE " + strings.Join(whereClauses, " AND ")
+	}
+
+	// 6. Get total count for pagination metadata
+	// nolint:gosec // tableName is validated by handler before reaching here
+	countSQL := fmt.Sprintf("SELECT COUNT(*) FROM %s%s", tableName, whereClause)
+	var totalCount int
+	err = userDB.QueryRowContext(ctx, countSQL, args...).Scan(&totalCount)
+	if err != nil {
+		customLog.Warnf("Storage: Failed COUNT query: %v\nSQL: %s", err, countSQL)
+		return nil, fmt.Errorf("database error counting records: %w", err)
+	}
+
+	// 7. Construct final SELECT SQL with ORDER BY and LIMIT/OFFSET
+	// nolint:gosec // tableName and selectFields are validated
+	selectSQL := fmt.Sprintf("SELECT %s FROM %s%s", selectFields, tableName, whereClause)
+
+	// Add ORDER BY clause
+	if opts.SortBy != "" {
+		orderDirection := "ASC"
+		if strings.EqualFold(opts.SortOrder, "desc") {
+			orderDirection = "DESC"
+		}
+		selectSQL += fmt.Sprintf(" ORDER BY %s %s", opts.SortBy, orderDirection)
+	} else {
+		// Default sort by id if exists, otherwise no default sort
+		if _, hasID := columnTypes["id"]; hasID {
+			selectSQL += " ORDER BY id ASC"
+		}
+	}
+
+	// Add LIMIT and OFFSET
+	selectSQL += fmt.Sprintf(" LIMIT %d OFFSET %d", opts.Limit, opts.Offset)
 
 	customLog.Printf("Storage: Executing List Records SQL: %s | Args: %v", selectSQL, args)
 
-	// 4. Execute query
+	// 8. Execute query
 	rows, err := userDB.QueryContext(ctx, selectSQL, args...)
 	if err != nil {
-		customLog.Warnf("Storage: Failed filtered SELECT *: %v\nSQL: %s", err, selectSQL)
-		// No need to check "no such table" here, PragmaTableInfo already did
+		customLog.Warnf("Storage: Failed SELECT: %v\nSQL: %s", err, selectSQL)
 		return nil, fmt.Errorf("database error listing records: %w", err)
 	}
 	defer rows.Close()
 
-	// 5. Process results (same as before)
+	// 9. Process results
 	columns, err := rows.Columns()
-	if err != nil { /* ... handle error ... */
+	if err != nil {
 		return nil, fmt.Errorf("failed processing results: %w", err)
 	}
 	numColumns := len(columns)
-	results := make([]map[string]interface{}, 0)
+	records := make([]map[string]interface{}, 0)
 
 	for rows.Next() {
 		scanArgs := make([]interface{}, numColumns)
@@ -346,7 +404,7 @@ func ListRecords(ctx context.Context, userDB *sql.DB, tableName string, queryPar
 		for i := range values {
 			scanArgs[i] = &values[i]
 		}
-		if err := rows.Scan(scanArgs...); err != nil { /* ... handle scan error ... */
+		if err := rows.Scan(scanArgs...); err != nil {
 			return nil, fmt.Errorf("failed reading record data: %w", err)
 		}
 
@@ -359,13 +417,20 @@ func ListRecords(ctx context.Context, userDB *sql.DB, tableName string, queryPar
 				rowData[colName] = rawValue
 			}
 		}
-		results = append(results, rowData)
+		records = append(records, rowData)
 	}
-	if err = rows.Err(); err != nil { /* ... handle iteration error ... */
+	if err = rows.Err(); err != nil {
 		return nil, fmt.Errorf("failed processing all records: %w", err)
 	}
 
-	return results, nil
+	return &ListRecordsResult{
+		Records: records,
+		Pagination: PaginationMeta{
+			Total:  totalCount,
+			Limit:  opts.Limit,
+			Offset: opts.Offset,
+		},
+	}, nil
 }
 
 // GetRecord executes SELECT * WHERE id = ? and returns a single map or ErrRecordNotFound.

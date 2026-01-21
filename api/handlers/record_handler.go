@@ -209,12 +209,11 @@ func (h *RecordHandler) CreateRecord(c *gin.Context) {
 	})
 }
 
-// ListRecords handles retrieving all records with filtering ---
+// ListRecords handles retrieving records with pagination, sorting, filtering, and field selection.
 func (h *RecordHandler) ListRecords(c *gin.Context) {
 	userDB, tableName, dbFilePath, err := h.getUserDBConn(c)
 	if err != nil {
-		// Handle getUserDBConn error (400, 404, 500)
-		errToSet := err // Capture error for c.Error
+		errToSet := err
 		if errors.Is(err, storage.ErrDatabaseNotFound) {
 			c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "Database not found or not registered."})
 		} else if strings.Contains(err.Error(), "invalid database or table name") {
@@ -222,34 +221,46 @@ func (h *RecordHandler) ListRecords(c *gin.Context) {
 		} else {
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to access database storage."})
 		}
-		_ = c.Error(errToSet) // Attach original error
+		_ = c.Error(errToSet)
 		return
 	}
 	defer userDB.Close()
 
-	// Pass the raw query parameters directly to the storage function
-	queryParams := c.Request.URL.Query() // type url.Values which is map[string][]string
+	// Parse query parameters
+	queryParams := c.Request.URL.Query()
 
-	customLog.Printf("Handler: Listing Records for DB '%s', Table '%s' with filters: %v", dbFilePath, tableName, queryParams)
-
-	// Call the updated storage function
-	results, err := storage.ListRecords(c.Request.Context(), userDB, tableName, queryParams)
+	// Parse pagination, sorting, and field selection options
+	queryOpts, err := core.ParseListQueryOptions(queryParams)
 	if err != nil {
-		_ = c.Error(err) // Attach storage error
-		// Map specific errors returned from storage
+		_ = c.Error(err)
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	customLog.Printf("Handler: Listing Records for DB '%s', Table '%s' with options: limit=%d, offset=%d, sort=%s, order=%s, fields=%v",
+		dbFilePath, tableName, queryOpts.Limit, queryOpts.Offset, queryOpts.SortBy, queryOpts.SortOrder, queryOpts.Fields)
+
+	// Call the updated storage function with query options
+	result, err := storage.ListRecords(c.Request.Context(), userDB, tableName, queryParams, queryOpts)
+	if err != nil {
+		_ = c.Error(err)
 		if errors.Is(err, storage.ErrTableNotFound) {
 			c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("Table '%s' not found.", tableName)})
 		} else if errors.Is(err, storage.ErrInvalidFilterValue) {
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		} else // Handle new validation error
-		{
+		} else if errors.Is(err, storage.ErrInvalidSortColumn) {
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		} else if errors.Is(err, storage.ErrInvalidFieldColumn) {
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		} else {
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to query records."})
 		}
 		return
 	}
 
-	customLog.Printf("Handler: Successfully retrieved %d records from DB '%s', Table '%s'", len(results), dbFilePath, tableName)
-	c.JSON(http.StatusOK, results)
+	customLog.Printf("Handler: Successfully retrieved %d records (total: %d) from DB '%s', Table '%s'",
+		len(result.Records), result.Pagination.Total, dbFilePath, tableName)
+	c.JSON(http.StatusOK, result)
 }
 
 // GetRecord handles retrieving a single record by ID.
