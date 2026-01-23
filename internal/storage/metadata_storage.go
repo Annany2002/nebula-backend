@@ -104,6 +104,7 @@ func UpdateUser(ctx context.Context, db *sql.DB, userId, username, email string)
 	}
 
 	args = append(args, userId)
+	// nolint:gosec // setClauses only contains hardcoded column names ("username = ?" or "email = ?")
 	sqlStatement := fmt.Sprintf("UPDATE users SET %s WHERE user_id = ?", strings.Join(setClauses, ", "))
 
 	result, err := db.ExecContext(ctx, sqlStatement, args...)
