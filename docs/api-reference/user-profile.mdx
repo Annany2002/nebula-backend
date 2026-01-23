@@ -1,0 +1,118 @@
+---
+title: User Profile
+description: "Manage user profile information"
+---
+
+# User Profile
+
+View and update your profile information.
+
+## Get Current User
+
+Retrieve the profile of the currently authenticated user.
+
+**Endpoint:** `GET /api/v1/account/user/me`
+
+<Note>
+  This endpoint requires JWT authentication. API keys are not supported.
+</Note>
+
+<RequestExample>
+```bash cURL
+curl http://localhost:8080/api/v1/account/user/me \
+  -H "Authorization: Bearer <your-jwt-token>"
+```
+</RequestExample>
+
+<ResponseExample>
+```json 200 OK
+{
+  "userId": "abc123-def456-ghi789",
+  "username": "myusername",
+  "email": "user@example.com",
+  "createdAt": "2024-01-15T10:30:00Z"
+}
+```
+
+```json 401 Unauthorized
+{
+  "error": "Unauthorized"
+}
+```
+</ResponseExample>
+
+---
+
+## Update Current User
+
+Update the profile of the currently authenticated user.
+
+**Endpoint:** `PUT /api/v1/account/user/me`
+
+<ParamField body="username" type="string">
+  New username (minimum 6 characters)
+</ParamField>
+
+<ParamField body="email" type="string">
+  New email address (must be valid email format)
+</ParamField>
+
+<Note>
+  You can update either field independently. Only include the fields you want to change.
+</Note>
+
+<RequestExample>
+```bash cURL (Update username)
+curl -X PUT http://localhost:8080/api/v1/account/user/me \
+  -H "Authorization: Bearer <your-jwt-token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "username": "newusername"
+  }'
+```
+
+```bash cURL (Update email)
+curl -X PUT http://localhost:8080/api/v1/account/user/me \
+  -H "Authorization: Bearer <your-jwt-token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "newemail@example.com"
+  }'
+```
+
+```bash cURL (Update both)
+curl -X PUT http://localhost:8080/api/v1/account/user/me \
+  -H "Authorization: Bearer <your-jwt-token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "username": "newusername",
+    "email": "newemail@example.com"
+  }'
+```
+</RequestExample>
+
+<ResponseExample>
+```json 200 OK
+{
+  "message": "Profile updated successfully",
+  "user": {
+    "userId": "abc123-def456-ghi789",
+    "username": "newusername",
+    "email": "newemail@example.com",
+    "createdAt": "2024-01-15T10:30:00Z"
+  }
+}
+```
+
+```json 400 Bad Request
+{
+  "error": "Email already exists"
+}
+```
+
+```json 400 Bad Request
+{
+  "error": "No fields to update. Provide 'username' or 'email'."
+}
+```
+</ResponseExample>
