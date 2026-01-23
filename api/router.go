@@ -72,6 +72,11 @@ func SetupRouter(metaDB *sql.DB, cfg *config.Config) *gin.Engine {
 	accountRoutes := router.Group("/api/v1/account")
 	accountRoutes.Use(middleware.AuthMiddleware(cfg))
 	{
+		// User Profile Management
+		accountRoutes.GET("/user/me", authHandler.GetCurrentUser)
+		accountRoutes.PUT("/user/me", authHandler.UpdateCurrentUser)
+
+		// API Key Management
 		accountRoutes.GET("/databases/:db_name/apikey", dbHandler.GetAPIKey)
 		accountRoutes.POST("/databases/:db_name/apikey", dbHandler.CreateAPIKey)
 		accountRoutes.DELETE("/databases/:db_name/apikey", dbHandler.DeleteAPIKey)

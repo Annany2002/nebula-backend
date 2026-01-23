@@ -84,6 +84,52 @@ func FindUserByUserId(ctx context.Context, db *sql.DB, user_id string) (*domain.
 	return &user, nil
 }
 
+// UpdateUser updates user profile fields (username and/or email).
+func UpdateUser(ctx context.Context, db *sql.DB, userId, username, email string) error {
+	// Build dynamic UPDATE query based on provided fields
+	setClauses := []string{}
+	args := []interface{}{}
+
+	if username != "" {
+		setClauses = append(setClauses, "username = ?")
+		args = append(args, username)
+	}
+	if email != "" {
+		setClauses = append(setClauses, "email = ?")
+		args = append(args, email)
+	}
+
+	if len(setClauses) == 0 {
+		return nil // Nothing to update
+	}
+
+	args = append(args, userId)
+	// nolint:gosec // setClauses only contains hardcoded column names ("username = ?" or "email = ?")
+	sqlStatement := fmt.Sprintf("UPDATE users SET %s WHERE user_id = ?", strings.Join(setClauses, ", "))
+
+	result, err := db.ExecContext(ctx, sqlStatement, args...)
+	if err != nil {
+		var sqliteErr sqlite3.Error
+		if errors.As(err, &sqliteErr) && sqliteErr.Code == sqlite3.ErrConstraint && sqliteErr.ExtendedCode == sqlite3.ErrConstraintUnique {
+			if strings.Contains(sqliteErr.Error(), "users.email") {
+				return ErrEmailExists
+			}
+		}
+		customLog.Warnf("Storage: Failed to update user %s: %v", userId, err)
+		return fmt.Errorf("database error during user update: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to confirm user update: %w", err)
+	}
+	if rowsAffected == 0 {
+		return ErrUserNotFound
+	}
+
+	return nil
+}
+
 // --- Database Registration Operations ---
 
 // RegisterDatabase inserts a new database registration record.

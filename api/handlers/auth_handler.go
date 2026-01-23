@@ -116,3 +116,68 @@ func (h *AuthHandler) FindUser(c *gin.Context) {
 
 	c.JSON(http.StatusOK, user)
 }
+
+// GetCurrentUser returns the profile of the currently authenticated user.
+func (h *AuthHandler) GetCurrentUser(c *gin.Context) {
+	userId := c.MustGet("userId").(string)
+
+	user, err := storage.FindUserByUserId(c.Request.Context(), h.DB, userId)
+	if err != nil {
+		customLog.Warnf("Failed to get current user profile for userId %s: %v", userId, err)
+		_ = c.Error(err)
+		return
+	}
+
+	// Return user profile without password hash
+	c.JSON(http.StatusOK, models.UserProfileResponse{
+		UserId:    user.UserId,
+		Username:  user.Username,
+		Email:     user.Email,
+		CreatedAt: user.CreatedAt.Format("2006-01-02T15:04:05Z"),
+	})
+}
+
+// UpdateCurrentUser updates the profile of the currently authenticated user.
+func (h *AuthHandler) UpdateCurrentUser(c *gin.Context) {
+	userId := c.MustGet("userId").(string)
+
+	var req models.UpdateProfileRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		customLog.Warnf("Update profile binding error for userId %s: %v", userId, err)
+		_ = c.Error(err)
+		return
+	}
+
+	// Check if there's anything to update
+	if req.Username == "" && req.Email == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "No fields to update. Provide 'username' or 'email'."})
+		return
+	}
+
+	// Update user profile
+	err := storage.UpdateUser(c.Request.Context(), h.DB, userId, req.Username, req.Email)
+	if err != nil {
+		customLog.Warnf("Failed to update user profile for userId %s: %v", userId, err)
+		_ = c.Error(err)
+		return
+	}
+
+	// Fetch updated user to return
+	updatedUser, err := storage.FindUserByUserId(c.Request.Context(), h.DB, userId)
+	if err != nil {
+		customLog.Warnf("Failed to fetch updated user profile for userId %s: %v", userId, err)
+		_ = c.Error(err)
+		return
+	}
+
+	customLog.Printf("Successfully updated profile for userId %s", userId)
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Profile updated successfully",
+		"user": models.UserProfileResponse{
+			UserId:    updatedUser.UserId,
+			Username:  updatedUser.Username,
+			Email:     updatedUser.Email,
+			CreatedAt: updatedUser.CreatedAt.Format("2006-01-02T15:04:05Z"),
+		},
+	})
+}
