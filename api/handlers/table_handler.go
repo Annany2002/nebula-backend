@@ -82,7 +82,7 @@ func (h *TableHandler) checkScopeAndGetUserDB(c *gin.Context) (*sql.DB, string, 
 }
 
 // processSchemaRequest common logic for CreateSchema and CreateTable
-func (h *TableHandler) processSchemaRequest(c *gin.Context, dbName string, dbFilePath string) {
+func (h *TableHandler) processSchemaRequest(c *gin.Context, dbName, dbFilePath string) {
 	var req models.CreateSchemaRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		_ = c.Error(fmt.Errorf("binding error: %w", err))
