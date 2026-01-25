@@ -198,10 +198,22 @@ func (h *DatabaseHandler) CreateSchema(c *gin.Context) {
 		return
 	}
 
+	// Support both Columns and Schema fields
+	columns := req.Columns
+	if len(columns) == 0 {
+		columns = req.Schema
+	}
+
+	if len(columns) == 0 {
+		_ = c.Error(errors.New("no columns provided"))
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "No columns provided in 'columns' or 'schema' field."})
+		return
+	}
+
 	var columnDefs []string
 	columnNames := make(map[string]bool) // Check for duplicate column names
 
-	for _, col := range req.Columns {
+	for _, col := range columns {
 		colNameLower := strings.ToLower(col.Name)
 		if !core.IsValidIdentifier(col.Name) || colNameLower == "id" {
 			_ = c.Error(fmt.Errorf("invalid column name: %s", col.Name))

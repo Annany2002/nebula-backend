@@ -17,7 +17,8 @@ type ColumnDefinition struct {
 // CreateSchemaRequest defines the structure for the schema creation request body
 type CreateSchemaRequest struct {
 	TableName string             `json:"table_name" binding:"required"`
-	Columns   []ColumnDefinition `json:"columns" binding:"required,min=1,dive"`
+	Columns   []ColumnDefinition `json:"columns" binding:"required_without=Schema"`
+	Schema    []ColumnDefinition `json:"schema" binding:"required_without=Columns"`
 }
 
 // CreateAPIKeyResponse returns the newly generated API key ONCE.
