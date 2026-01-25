@@ -20,11 +20,11 @@ help:
 
 # Build the application
 build:
-	go build -o bin/server ./cmd/server
+	go build -o bin/nebula-backend ./cmd/server/main.go
 
 # Run the application
 run:
-	go run ./cmd/server
+	go run ./cmd/server/main.go
 
 # Run with hot-reload
 dev:
