@@ -1,11 +1,84 @@
 ---
 title: Tables
-description: "List and delete tables"
+description: "Create, list, and delete tables"
 ---
 
 # Table Management
 
-List tables in a database and delete tables.
+Create, list, and delete tables in your databases.
+
+## Create Table
+
+Create a new table within a database.
+
+**Endpoint:** `POST /api/v1/databases/:db_name/tables`
+
+<ParamField path="db_name" type="string" required>
+  Database name
+</ParamField>
+
+<ParamField body="table_name" type="string" required>
+  Name for the new table (alphanumeric and underscores only)
+</ParamField>
+
+<ParamField body="schema" type="array" required>
+  Array of column definitions (alternative to `columns`)
+</ParamField>
+
+<ParamField body="columns" type="array">
+  Array of column definitions (alternative to `schema`)
+</ParamField>
+
+### Column Definition
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | string | Column name (cannot be `id`) |
+| `type` | string | SQLite type: `TEXT`, `INTEGER`, `REAL`, `BLOB` |
+
+<RequestExample>
+```bash cURL
+curl -X POST http://localhost:8080/api/v1/databases/mydb/tables \
+  -H "Authorization: Bearer <your-jwt-token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "table_name": "products",
+    "schema": [
+      {"name": "name", "type": "TEXT"},
+      {"name": "price", "type": "REAL"},
+      {"name": "quantity", "type": "INTEGER"}
+    ]
+  }'
+```
+</RequestExample>
+
+<ResponseExample>
+```json 201 Created
+{
+  "message": "Table 'products' created or already exists.",
+  "db_name": "mydb",
+  "table_name": "products"
+}
+```
+
+```json 400 Bad Request
+{
+  "error": "Invalid column name 'id'. Use valid identifiers, cannot be 'id'."
+}
+```
+
+```json 404 Not Found
+{
+  "error": "Database not found or not registered."
+}
+```
+</ResponseExample>
+
+<Note>
+  An `id` column (INTEGER PRIMARY KEY AUTOINCREMENT) and `created_at` timestamp are automatically added to every table.
+</Note>
+
+---
 
 ## List Tables
 
