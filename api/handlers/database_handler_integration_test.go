@@ -162,5 +162,18 @@ func TestDatabaseStudioEndpoints(t *testing.T) {
 	require.NoError(t, err)
 	res.Body.Close()
 	assert.Equal(t, int64(2), tablesRes.Tables[0].RowCount)
+
+	// 9. Test Analytics & Schema Advisor
+	res = doAuthReq("GET", server.URL+"/api/v1/databases/demodb/analytics", nil)
+	assert.Equal(t, http.StatusOK, res.StatusCode)
+	var analyticsRes domain.DatabaseAnalytics
+	err = json.NewDecoder(res.Body).Decode(&analyticsRes)
+	require.NoError(t, err)
+	res.Body.Close()
+
+	assert.True(t, analyticsRes.TotalRequests >= 0)
+	assert.NotEmpty(t, analyticsRes.Services)
+	assert.NotNil(t, analyticsRes.Advisor)
+
 	fmt.Println("All Studio backend tests passed!")
 }

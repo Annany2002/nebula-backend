@@ -103,5 +103,27 @@ func ConnectMetadataDB(cfg *config.Config) (*sql.DB, error) {
 
 	customLog.Println("Storage: API Keys table ensured.")
 
+	// Ensure 'database_telemetry' table ---
+	createTelemetryTableSQL := `
+	CREATE TABLE IF NOT EXISTS database_telemetry (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		database_id INTEGER,
+		database_name TEXT NOT NULL,
+		endpoint TEXT NOT NULL,
+		method TEXT NOT NULL,
+		status_code INTEGER NOT NULL,
+		latency_ms INTEGER NOT NULL,
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+	);
+	CREATE INDEX IF NOT EXISTS idx_telemetry_db_time ON database_telemetry(database_name, created_at);
+	`
+	if _, err = db.Exec(createTelemetryTableSQL); err != nil {
+		db.Close()
+		customLog.Printf("Storage: Failed to create database_telemetry table: %v", err)
+		return nil, fmt.Errorf("failed to ensure database_telemetry table: %w", err)
+	}
+
+	customLog.Println("Storage: Database Telemetry table ensured.")
+
 	return db, nil
 }

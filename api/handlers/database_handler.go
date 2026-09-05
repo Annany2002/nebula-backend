@@ -509,3 +509,29 @@ func (h *DatabaseHandler) DeleteAPIKey(c *gin.Context) {
 
 	c.Status(http.StatusNoContent)
 }
+
+// GetDatabaseAnalytics retrieves real request telemetry analytics and schema advisor insights.
+func (h *DatabaseHandler) GetDatabaseAnalytics(c *gin.Context) {
+	userId := c.MustGet("userId").(string)
+	dbName := c.Param("db_name")
+
+	if !core.IsValidIdentifier(dbName) {
+		_ = c.Error(errors.New("invalid database name in URL path"))
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid database name format."})
+		return
+	}
+
+	analytics, err := storage.GetDatabaseAnalytics(c.Request.Context(), h.MetaDB, userId, dbName)
+	if err != nil {
+		_ = c.Error(err)
+		if errors.Is(err, storage.ErrDatabaseNotFound) {
+			c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "Database not found."})
+		} else {
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to compute database analytics."})
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, analytics)
+}
+

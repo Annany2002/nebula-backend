@@ -74,3 +74,40 @@ type DatabaseDetailMetadata struct {
 	SizeDisplay  string    `json:"sizeDisplay"`
 	APIKey       string    `json:"apiKey"`
 }
+
+// ServiceMetricBucket represents hourly or aggregate metric for a service category
+type ServiceMetricBucket struct {
+	Timestamp string `json:"timestamp"`
+	Requests  int64  `json:"requests"`
+	Warnings  int64  `json:"warnings"`
+	Errors    int64  `json:"errors"`
+}
+
+// ServiceMetrics represents a service card metrics breakdown
+type ServiceMetrics struct {
+	Name     string                `json:"name"`     // "SQL Engine", "Records API", "Tables API", "Auth & Keys"
+	Requests int64                 `json:"requests"` // Total requests
+	Warnings int64                 `json:"warnings"` // 4xx status codes
+	Errors   int64                 `json:"errors"`   // 5xx status codes
+	History  []ServiceMetricBucket `json:"history"`  // Hourly breakdown for bar charts
+}
+
+// AdvisorIssue represents a real schema or security finding on SQLite
+type AdvisorIssue struct {
+	ID          string `json:"id"`
+	Category    string `json:"category"` // "SECURITY", "PERFORMANCE", "SCHEMA"
+	Severity    string `json:"severity"` // "CRITICAL", "WARNING", "INFO"
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	TableName   string `json:"tableName,omitempty"`
+	Suggestion  string `json:"suggestion"`
+}
+
+// DatabaseAnalytics represents complete analytics and advisor report
+type DatabaseAnalytics struct {
+	TotalRequests int64            `json:"totalRequests"`
+	SuccessRate   float64          `json:"successRate"`
+	Timeframe     string           `json:"timeframe"` // "24h"
+	Services      []ServiceMetrics `json:"services"`
+	Advisor       []AdvisorIssue   `json:"advisor"`
+}

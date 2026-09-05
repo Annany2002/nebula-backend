@@ -53,6 +53,7 @@ func SetupRouter(metaDB *sql.DB, cfg *config.Config) *gin.Engine {
 	// but before the routing happens, so it wraps the handlers.
 
 	router.Use(middleware.ErrorHandler())
+	router.Use(middleware.TelemetryMiddleware(metaDB))
 
 	// Initialize Handlers
 	authHandler := handlers.NewAuthHandler(metaDB, cfg)
@@ -122,6 +123,7 @@ func SetupRouter(metaDB *sql.DB, cfg *config.Config) *gin.Engine {
 		apiRoutes.GET("/databases/:db_name", dbHandler.GetDatabase)
 		apiRoutes.DELETE("/databases/:db_name", dbHandler.DeleteDatabase)
 		apiRoutes.POST("/databases/:db_name/sql", dbHandler.ExecuteSQL)
+		apiRoutes.GET("/databases/:db_name/analytics", dbHandler.GetDatabaseAnalytics)
 
 		// Schema Management
 		apiRoutes.GET("/databases/:db_name/tables/:table_name/schema", dbHandler.GetSchema)
