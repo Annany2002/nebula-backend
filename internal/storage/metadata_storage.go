@@ -191,7 +191,7 @@ func ListUserDatabases(ctx context.Context, db *sql.DB, userId string) ([]domain
 			// return nil, ErrTableNotFound
 		}
 
-		if err := userSingleDb.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table';").Scan(&singleDb.Tables); err != nil {
+		if err := userSingleDb.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_nebula_%';").Scan(&singleDb.Tables); err != nil {
 			customLog.Warnf("Error counting tables in %s: %v\n", singleDb.FilePath, err)
 			userSingleDb.Close()
 			continue

@@ -147,7 +147,7 @@ func (h *TableHandler) processSchemaRequest(c *gin.Context, dbName, dbFilePath s
 		strings.Join(columnDefs, ", "),
 	)
 
-	err = storage.CreateTable(c.Request.Context(), userDB, createTableSQL)
+	err = storage.CreateTable(c.Request.Context(), userDB, req.TableName, createTableSQL)
 	if err != nil {
 		_ = c.Error(err)
 		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to create table."})

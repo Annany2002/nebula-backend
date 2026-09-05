@@ -254,7 +254,7 @@ func (h *DatabaseHandler) CreateSchema(c *gin.Context) {
 	customLog.Printf("Handler: Executing Schema SQL for UserID %s, DB '%s': %s", userId, dbName, createTableSQL)
 
 	// Execute via storage function
-	err = storage.CreateTable(c.Request.Context(), userDB, createTableSQL)
+	err = storage.CreateTable(c.Request.Context(), userDB, req.TableName, createTableSQL)
 	if err != nil {
 		_ = c.Error(err)
 		// Could inspect err further if CreateTable returned more specific errors

@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/mattn/go-sqlite3"
 
@@ -111,14 +112,27 @@ func PragmaTableInfo(ctx context.Context, userDB *sql.DB, tableName string) (map
 	return columnTypes, nil
 }
 
-// ListTables retrieves a list of table names from the user's database file.
+// ListTables retrieves a list of tables and their metadata from the user's database file.
 func ListTables(ctx context.Context, userDB *sql.DB) ([]domain.TableMetadata, error) {
-	// Query sqlite_master (or sqlite_schema in newer versions) for tables
-	// Exclude sqlite internal tables
-	query := `SELECT * FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name;`
+	// Ensure metadata tracking table exists and backfill existing tables
+	_, _ = userDB.ExecContext(ctx, `
+	CREATE TABLE IF NOT EXISTS _nebula_table_metadata (
+		table_name TEXT PRIMARY KEY,
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+	);`)
+	_, _ = userDB.ExecContext(ctx, `
+	INSERT OR IGNORE INTO _nebula_table_metadata (table_name, created_at)
+	SELECT name, CURRENT_TIMESTAMP FROM sqlite_master 
+	WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_nebula_%';`)
+
+	query := `
+	SELECT m.type, m.name, m.tbl_name, m.rootpage, m.sql, tm.created_at
+	FROM sqlite_master m
+	LEFT JOIN _nebula_table_metadata tm ON m.name = tm.table_name
+	WHERE m.type='table' AND m.name NOT LIKE 'sqlite_%' AND m.name NOT LIKE '_nebula_%'
+	ORDER BY m.name;`
 
 	rows, err := userDB.QueryContext(ctx, query)
-
 	if err != nil {
 		customLog.Warnf("Storage: Error listing tables: %v", err)
 		return nil, fmt.Errorf("database error listing tables: %w", err)
@@ -129,11 +143,28 @@ func ListTables(ctx context.Context, userDB *sql.DB) ([]domain.TableMetadata, er
 
 	for rows.Next() {
 		var table domain.TableMetadata
+		var rawCreatedAt sql.NullString
 
-		if err := rows.Scan(&table.Type, &table.Name, &table.TableName, &table.RootPage, &table.Sql); err != nil {
-			customLog.Warnf("Storage: Error scanning table name: %v", err)
+		if err := rows.Scan(&table.Type, &table.Name, &table.TableName, &table.RootPage, &table.Sql, &rawCreatedAt); err != nil {
+			customLog.Warnf("Storage: Error scanning table row: %v", err)
 			return nil, fmt.Errorf("failed processing table list: %w", err)
 		}
+
+		if rawCreatedAt.Valid && rawCreatedAt.String != "" {
+			formats := []string{
+				time.RFC3339,
+				"2006-01-02 15:04:05",
+				"2006-01-02T15:04:05Z",
+				"2006-01-02 15:04:05.999999999-07:00",
+			}
+			for _, layout := range formats {
+				if t, err := time.Parse(layout, rawCreatedAt.String); err == nil {
+					table.CreatedAt = t
+					break
+				}
+			}
+		}
+
 		// Get column information for the current table.
 		columnInfos, err := getColumnInfo(ctx, userDB, table.Name)
 		if err != nil {
@@ -154,29 +185,41 @@ func ListTables(ctx context.Context, userDB *sql.DB) ([]domain.TableMetadata, er
 	return tables, nil
 }
 
-// CreateTable executes a CREATE TABLE statement in the user DB.
-func CreateTable(ctx context.Context, userDB *sql.DB, createSQL string) error {
+// CreateTable executes a CREATE TABLE statement in the user DB and records creation metadata.
+func CreateTable(ctx context.Context, userDB *sql.DB, tableName, createSQL string) error {
 	_, err := userDB.ExecContext(ctx, createSQL) // createSQL assumed pre-validated
 	if err != nil {
 		customLog.Warnf("Storage: Failed to execute CREATE TABLE: %v\nSQL: %s", err, createSQL)
-		// Could try to parse error for specific issues (e.g., table exists if not using IF NOT EXISTS)
 		return fmt.Errorf("failed to create table: %w", err)
 	}
+
+	// Ensure metadata tracking table exists and record timestamp
+	_, _ = userDB.ExecContext(ctx, `
+	CREATE TABLE IF NOT EXISTS _nebula_table_metadata (
+		table_name TEXT PRIMARY KEY,
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+	);`)
+
+	if tableName != "" {
+		_, _ = userDB.ExecContext(ctx, `
+		INSERT OR IGNORE INTO _nebula_table_metadata (table_name, created_at)
+		VALUES (?, CURRENT_TIMESTAMP);`, tableName)
+	}
+
 	return nil
 }
 
-// DropTable executes a DROP TABLE statement in the user DB.
-// tableName should be pre-validated by the caller.
+// DropTable executes a DROP TABLE statement in the user DB and cleans up metadata.
 func DropTable(ctx context.Context, userDB *sql.DB, tableName string) error {
-	// Use IF EXISTS to prevent error if table doesn't exist (makes operation idempotent)
 	dropSQL := fmt.Sprintf("DROP TABLE IF EXISTS %s;", tableName) // tableName is assumed validated
 	_, err := userDB.ExecContext(ctx, dropSQL)
-
 	if err != nil {
 		// This could indicate a more serious issue (permissions, locked db, etc.)
 		customLog.Warnf("Storage: Failed DROP TABLE for Table '%s': %v", tableName, err)
 		return fmt.Errorf("database error dropping table: %w", err)
 	}
+
+	_, _ = userDB.ExecContext(ctx, "DELETE FROM _nebula_table_metadata WHERE table_name = ?;", tableName)
 	return nil
 }
 
