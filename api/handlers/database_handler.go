@@ -98,6 +98,80 @@ func (h *DatabaseHandler) ListDatabases(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"databases": userDb})
 }
 
+// GetDatabase handles requests to retrieve detailed metadata for a single database.
+func (h *DatabaseHandler) GetDatabase(c *gin.Context) {
+	userId := c.MustGet("userId").(string)
+	dbName := c.Param("db_name")
+
+	if !core.IsValidIdentifier(dbName) {
+		_ = c.Error(errors.New("invalid database name in URL path"))
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid database name format."})
+		return
+	}
+
+	detail, err := storage.GetDatabaseDetails(c.Request.Context(), h.MetaDB, userId, dbName)
+	if err != nil {
+		_ = c.Error(err)
+		if errors.Is(err, storage.ErrDatabaseNotFound) {
+			c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "Database not found."})
+		} else {
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve database details."})
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"database": detail})
+}
+
+// ExecuteSQL handles requests to execute arbitrary SQL on the user's database.
+func (h *DatabaseHandler) ExecuteSQL(c *gin.Context) {
+	userId := c.MustGet("userId").(string)
+	dbName := c.Param("db_name")
+
+	if !core.IsValidIdentifier(dbName) {
+		_ = c.Error(errors.New("invalid database name in URL path"))
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid database name format."})
+		return
+	}
+
+	var req struct {
+		Query string `json:"query" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		_ = c.Error(err)
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid request body: 'query' is required."})
+		return
+	}
+
+	dbFilePath, err := storage.FindDatabasePath(c.Request.Context(), h.MetaDB, userId, dbName)
+	if err != nil {
+		_ = c.Error(err)
+		if errors.Is(err, storage.ErrDatabaseNotFound) {
+			c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "Database not found."})
+		} else {
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to locate database."})
+		}
+		return
+	}
+
+	userDB, err := storage.ConnectUserDB(c.Request.Context(), dbFilePath)
+	if err != nil {
+		_ = c.Error(err)
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to connect to database."})
+		return
+	}
+	defer userDB.Close()
+
+	result, err := storage.ExecuteSQL(c.Request.Context(), userDB, req.Query)
+	if err != nil {
+		_ = c.Error(err)
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, result)
+}
+
 // DeleteDatabase handles requests to delete a database registration and its file.
 func (h *DatabaseHandler) DeleteDatabase(c *gin.Context) {
 	userId := c.MustGet("userId").(string)

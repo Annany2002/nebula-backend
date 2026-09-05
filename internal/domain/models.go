@@ -41,6 +41,7 @@ type TableMetadata struct {
 	RootPage  string       `json:"rootpage"`
 	Sql       string       `json:"sql"`
 	CreatedAt time.Time    `json:"createdAt"`
+	RowCount  int64        `json:"rowCount"`
 	Columns   []ColumnInfo `json:"columns"`
 }
 
@@ -48,4 +49,28 @@ type TableSchemaMetaData struct {
 	Name       string `json:"name"`
 	Type       string `json:"type"`
 	PrimaryKey bool   `json:"pk"`
+}
+
+// SQLQueryResult represents result of an executed SQL query
+type SQLQueryResult struct {
+	Columns      []string `json:"columns,omitempty"`
+	Rows         [][]any  `json:"rows,omitempty"`
+	RowCount     int64    `json:"rowCount"`
+	RowsAffected int64    `json:"rowsAffected"`
+	ExecutionMs  int64    `json:"executionMs"`
+	Message      string   `json:"message,omitempty"`
+}
+
+// DatabaseDetailMetadata represents detailed single database information
+type DatabaseDetailMetadata struct {
+	DatabaseID   int64     `json:"databaseId"`
+	UserID       string    `json:"userId"`
+	DBName       string    `json:"dbName"`
+	FilePath     string    `json:"filePath"`
+	CreatedAt    time.Time `json:"createdAt"`
+	Tables       int64     `json:"tables"`
+	TotalRecords int64     `json:"totalRecords"`
+	SizeBytes    int64     `json:"sizeBytes"`
+	SizeDisplay  string    `json:"sizeDisplay"`
+	APIKey       string    `json:"apiKey"`
 }

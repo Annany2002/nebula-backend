@@ -165,6 +165,11 @@ func ListTables(ctx context.Context, userDB *sql.DB) ([]domain.TableMetadata, er
 			}
 		}
 
+		// Get row count for the table
+		var rowCount int64
+		_ = userDB.QueryRowContext(ctx, fmt.Sprintf("SELECT COUNT(*) FROM %s;", table.Name)).Scan(&rowCount)
+		table.RowCount = rowCount
+
 		// Get column information for the current table.
 		columnInfos, err := getColumnInfo(ctx, userDB, table.Name)
 		if err != nil {
@@ -606,4 +611,82 @@ func getColumnInfo(ctx context.Context, userDb *sql.DB, tableName string) ([]dom
 	}
 
 	return columnInfos, nil
+}
+
+// ExecuteSQL executes arbitrary user SQL on the database connection and returns structured results.
+func ExecuteSQL(ctx context.Context, userDB *sql.DB, queryStr string) (*domain.SQLQueryResult, error) {
+	trimmed := strings.TrimSpace(queryStr)
+	if trimmed == "" {
+		return nil, errors.New("query cannot be empty")
+	}
+
+	startTime := time.Now()
+	upper := strings.ToUpper(trimmed)
+	isQuery := strings.HasPrefix(upper, "SELECT") ||
+		strings.HasPrefix(upper, "PRAGMA") ||
+		strings.HasPrefix(upper, "EXPLAIN") ||
+		strings.HasPrefix(upper, "WITH")
+
+	if isQuery {
+		rows, err := userDB.QueryContext(ctx, trimmed)
+		if err != nil {
+			return nil, fmt.Errorf("query execution failed: %w", err)
+		}
+		defer rows.Close()
+
+		cols, err := rows.Columns()
+		if err != nil {
+			return nil, fmt.Errorf("failed to read columns: %w", err)
+		}
+
+		resultRows := make([][]any, 0)
+		for rows.Next() {
+			scanArgs := make([]any, len(cols))
+			values := make([]any, len(cols))
+			for i := range values {
+				scanArgs[i] = &values[i]
+			}
+			if err := rows.Scan(scanArgs...); err != nil {
+				return nil, fmt.Errorf("failed scanning row: %w", err)
+			}
+
+			// Clean raw bytes (e.g. text returned as []byte by sqlite driver)
+			rowValues := make([]any, len(cols))
+			for i, v := range values {
+				if b, ok := v.([]byte); ok {
+					rowValues[i] = string(b)
+				} else {
+					rowValues[i] = v
+				}
+			}
+			resultRows = append(resultRows, rowValues)
+		}
+
+		if err := rows.Err(); err != nil {
+			return nil, fmt.Errorf("error reading rows: %w", err)
+		}
+
+		elapsed := time.Since(startTime).Milliseconds()
+		return &domain.SQLQueryResult{
+			Columns:     cols,
+			Rows:        resultRows,
+			RowCount:    int64(len(resultRows)),
+			ExecutionMs: elapsed,
+			Message:     fmt.Sprintf("%d row(s) returned in %dms", len(resultRows), elapsed),
+		}, nil
+	}
+
+	// Exec statement (INSERT, UPDATE, DELETE, CREATE, DROP, etc.)
+	res, err := userDB.ExecContext(ctx, trimmed)
+	if err != nil {
+		return nil, fmt.Errorf("statement execution failed: %w", err)
+	}
+
+	affected, _ := res.RowsAffected()
+	elapsed := time.Since(startTime).Milliseconds()
+	return &domain.SQLQueryResult{
+		RowsAffected: affected,
+		ExecutionMs:  elapsed,
+		Message:      fmt.Sprintf("Statement executed successfully in %dms (%d rows affected)", elapsed, affected),
+	}, nil
 }

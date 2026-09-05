@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/mattn/go-sqlite3"
@@ -342,4 +343,75 @@ func DeleteAPIKey(ctx context.Context, db *sql.DB, key string) error {
 	}
 
 	return nil // Success
+}
+
+func formatBytes(b int64) string {
+	const unit = 1024
+	if b < unit {
+		return fmt.Sprintf("%d B", b)
+	}
+	div, exp := int64(unit), 0
+	for n := b / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(b)/float64(div), "KMGTPE"[exp])
+}
+
+// GetDatabaseDetails retrieves detailed database metadata including disk size and total records.
+func GetDatabaseDetails(ctx context.Context, metaDB *sql.DB, userId, dbName string) (*domain.DatabaseDetailMetadata, error) {
+	query := `SELECT database_id, owner_id, db_name, file_path, created_at FROM databases WHERE owner_id = ? AND db_name = ? LIMIT 1;`
+	var detail domain.DatabaseDetailMetadata
+	err := metaDB.QueryRowContext(ctx, query, userId, dbName).Scan(
+		&detail.DatabaseID,
+		&detail.UserID,
+		&detail.DBName,
+		&detail.FilePath,
+		&detail.CreatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrDatabaseNotFound
+		}
+		return nil, fmt.Errorf("database error retrieving details: %w", err)
+	}
+
+	// File size on disk
+	if fi, err := os.Stat(detail.FilePath); err == nil {
+		detail.SizeBytes = fi.Size()
+		detail.SizeDisplay = formatBytes(fi.Size())
+	} else {
+		detail.SizeDisplay = "0 B"
+	}
+
+	// Connect to user database to count tables and total records
+	userDB, err := ConnectUserDB(ctx, detail.FilePath)
+	if err == nil {
+		defer userDB.Close()
+
+		// Count tables
+		_ = userDB.QueryRowContext(ctx, "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_nebula_%';").Scan(&detail.Tables)
+
+		// Sum records across all tables
+		rows, err := userDB.QueryContext(ctx, "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_nebula_%';")
+		if err == nil {
+			defer rows.Close()
+			var totalRecords int64
+			for rows.Next() {
+				var tblName string
+				if err := rows.Scan(&tblName); err == nil {
+					var count int64
+					_ = userDB.QueryRowContext(ctx, fmt.Sprintf("SELECT COUNT(*) FROM %s;", tblName)).Scan(&count)
+					totalRecords += count
+				}
+			}
+			detail.TotalRecords = totalRecords
+		}
+	}
+
+	// Active API Key
+	apiKey, _ := FindAPIKeyByDatabaseId(ctx, metaDB, detail.DatabaseID)
+	detail.APIKey = apiKey
+
+	return &detail, nil
 }
