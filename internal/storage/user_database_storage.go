@@ -690,3 +690,234 @@ func ExecuteSQL(ctx context.Context, userDB *sql.DB, queryStr string) (*domain.S
 		Message:      fmt.Sprintf("Statement executed successfully in %dms (%d rows affected)", elapsed, affected),
 	}, nil
 }
+
+// GetDatabaseSchemaDiagram returns tables, column definitions, and foreign key relationships for the ER diagram.
+func GetDatabaseSchemaDiagram(ctx context.Context, userDB *sql.DB) (*domain.SchemaDiagram, error) {
+	query := `
+	SELECT name, sql 
+	FROM sqlite_master 
+	WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_nebula_%' 
+	ORDER BY name;`
+
+	rows, err := userDB.QueryContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query tables: %w", err)
+	}
+	defer rows.Close()
+
+	type tableHeader struct {
+		name string
+		sql  string
+	}
+	var headers []tableHeader
+	for rows.Next() {
+		var h tableHeader
+		var sqlStr sql.NullString
+		if err := rows.Scan(&h.name, &sqlStr); err != nil {
+			return nil, fmt.Errorf("failed scanning table header: %w", err)
+		}
+		if sqlStr.Valid {
+			h.sql = sqlStr.String
+		}
+		headers = append(headers, h)
+	}
+
+	diagramTables := make([]domain.TableDiagramInfo, 0, len(headers))
+	totalFKs := 0
+
+	for _, h := range headers {
+		cols, err := getColumnInfo(ctx, userDB, h.name)
+		if err != nil {
+			cols = make([]domain.ColumnInfo, 0)
+		}
+
+		var rowCount int64
+		_ = userDB.QueryRowContext(ctx, fmt.Sprintf("SELECT COUNT(*) FROM %s;", h.name)).Scan(&rowCount)
+
+		fkRows, err := userDB.QueryContext(ctx, fmt.Sprintf("PRAGMA foreign_key_list(%s);", h.name))
+		fks := make([]domain.ForeignKeyInfo, 0)
+		if err == nil {
+			for fkRows.Next() {
+				var fk domain.ForeignKeyInfo
+				var match sql.NullString
+				if err := fkRows.Scan(&fk.ID, &fk.Seq, &fk.Table, &fk.From, &fk.To, &fk.OnUpdate, &fk.OnDelete, &match); err == nil {
+					fks = append(fks, fk)
+					totalFKs++
+				}
+			}
+			fkRows.Close()
+		}
+
+		diagramTables = append(diagramTables, domain.TableDiagramInfo{
+			Name:        h.name,
+			Columns:     cols,
+			ForeignKeys: fks,
+			RowCount:    rowCount,
+			SQL:         h.sql,
+		})
+	}
+
+	return &domain.SchemaDiagram{
+		Tables:      diagramTables,
+		TotalTables: len(diagramTables),
+		TotalFKs:    totalFKs,
+	}, nil
+}
+
+// GetDatabaseObjects returns SQLite indexes and triggers
+func GetDatabaseObjects(ctx context.Context, userDB *sql.DB) (*domain.DatabaseObjects, error) {
+	// Query Indexes
+	indexRows, err := userDB.QueryContext(ctx, `
+	SELECT name, tbl_name, sql 
+	FROM sqlite_master 
+	WHERE type='index' AND name NOT LIKE 'sqlite_autoindex_%' AND name NOT LIKE 'sqlite_%'
+	ORDER BY tbl_name, name;`)
+	if err != nil {
+		return nil, fmt.Errorf("failed querying indexes: %w", err)
+	}
+	defer indexRows.Close()
+
+	indexes := make([]domain.IndexInfo, 0)
+	for indexRows.Next() {
+		var idx domain.IndexInfo
+		var sqlStr sql.NullString
+		if err := indexRows.Scan(&idx.Name, &idx.TableName, &sqlStr); err == nil {
+			if sqlStr.Valid {
+				idx.SQL = sqlStr.String
+				idx.Unique = strings.Contains(strings.ToUpper(sqlStr.String), "UNIQUE")
+			}
+			indexes = append(indexes, idx)
+		}
+	}
+
+	// Query Triggers
+	triggerRows, err := userDB.QueryContext(ctx, `
+	SELECT name, tbl_name, sql 
+	FROM sqlite_master 
+	WHERE type='trigger' 
+	ORDER BY tbl_name, name;`)
+	if err != nil {
+		return nil, fmt.Errorf("failed querying triggers: %w", err)
+	}
+	defer triggerRows.Close()
+
+	triggers := make([]domain.TriggerInfo, 0)
+	for triggerRows.Next() {
+		var trg domain.TriggerInfo
+		var sqlStr sql.NullString
+		if err := triggerRows.Scan(&trg.Name, &trg.TableName, &sqlStr); err == nil {
+			if sqlStr.Valid {
+				trg.SQL = sqlStr.String
+			}
+			triggers = append(triggers, trg)
+		}
+	}
+
+	return &domain.DatabaseObjects{
+		Indexes:  indexes,
+		Triggers: triggers,
+	}, nil
+}
+
+// ExportDatabaseSQL dumps tables, schemas, and data into SQL statements
+func ExportDatabaseSQL(ctx context.Context, userDB *sql.DB) (string, error) {
+	var sb strings.Builder
+	sb.WriteString("-- Nebula SQLite Database Dump\n")
+	sb.WriteString(fmt.Sprintf("-- Generated: %s\n\n", time.Now().UTC().Format(time.RFC3339)))
+	sb.WriteString("PRAGMA foreign_keys=OFF;\nBEGIN TRANSACTION;\n\n")
+
+	// 1. Tables and Data
+	tableRows, err := userDB.QueryContext(ctx, `
+	SELECT name, sql FROM sqlite_master 
+	WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_nebula_%'
+	ORDER BY name;`)
+	if err != nil {
+		return "", fmt.Errorf("failed reading tables for dump: %w", err)
+	}
+	defer tableRows.Close()
+
+	type tableDump struct {
+		name string
+		sql  string
+	}
+	var tables []tableDump
+	for tableRows.Next() {
+		var td tableDump
+		var sqlStr sql.NullString
+		if err := tableRows.Scan(&td.name, &sqlStr); err == nil && sqlStr.Valid {
+			td.sql = sqlStr.String
+			tables = append(tables, td)
+		}
+	}
+
+	for _, t := range tables {
+		sb.WriteString(fmt.Sprintf("-- Table: %s\n", t.name))
+		sb.WriteString(fmt.Sprintf("%s;\n\n", t.sql))
+
+		// Dump Rows
+		rows, err := userDB.QueryContext(ctx, fmt.Sprintf("SELECT * FROM %s;", t.name))
+		if err == nil {
+			cols, err := rows.Columns()
+			if err == nil && len(cols) > 0 {
+				for rows.Next() {
+					scanArgs := make([]any, len(cols))
+					values := make([]any, len(cols))
+					for i := range values {
+						scanArgs[i] = &values[i]
+					}
+					if err := rows.Scan(scanArgs...); err == nil {
+						valStrs := make([]string, len(cols))
+						for i, v := range values {
+							if v == nil {
+								valStrs[i] = "NULL"
+							} else if str, ok := v.(string); ok {
+								valStrs[i] = fmt.Sprintf("'%s'", strings.ReplaceAll(str, "'", "''"))
+							} else if b, ok := v.([]byte); ok {
+								valStrs[i] = fmt.Sprintf("'%s'", strings.ReplaceAll(string(b), "'", "''"))
+							} else {
+								valStrs[i] = fmt.Sprintf("%v", v)
+							}
+						}
+						sb.WriteString(fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s);\n",
+							t.name, strings.Join(cols, ", "), strings.Join(valStrs, ", ")))
+					}
+				}
+			}
+			rows.Close()
+			sb.WriteString("\n")
+		}
+	}
+
+	// 2. Indexes
+	idxRows, err := userDB.QueryContext(ctx, `
+	SELECT sql FROM sqlite_master 
+	WHERE type='index' AND sql IS NOT NULL AND name NOT LIKE 'sqlite_%';`)
+	if err == nil {
+		for idxRows.Next() {
+			var sqlStr string
+			if err := idxRows.Scan(&sqlStr); err == nil && sqlStr != "" {
+				sb.WriteString(fmt.Sprintf("%s;\n", sqlStr))
+			}
+		}
+		idxRows.Close()
+		sb.WriteString("\n")
+	}
+
+	// 3. Triggers
+	trgRows, err := userDB.QueryContext(ctx, `
+	SELECT sql FROM sqlite_master 
+	WHERE type='trigger' AND sql IS NOT NULL;`)
+	if err == nil {
+		for trgRows.Next() {
+			var sqlStr string
+			if err := trgRows.Scan(&sqlStr); err == nil && sqlStr != "" {
+				sb.WriteString(fmt.Sprintf("%s;\n", sqlStr))
+			}
+		}
+		trgRows.Close()
+		sb.WriteString("\n")
+	}
+
+	sb.WriteString("COMMIT;\n")
+	return sb.String(), nil
+}

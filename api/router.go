@@ -124,6 +124,10 @@ func SetupRouter(metaDB *sql.DB, cfg *config.Config) *gin.Engine {
 		apiRoutes.DELETE("/databases/:db_name", dbHandler.DeleteDatabase)
 		apiRoutes.POST("/databases/:db_name/sql", dbHandler.ExecuteSQL)
 		apiRoutes.GET("/databases/:db_name/analytics", dbHandler.GetDatabaseAnalytics)
+		apiRoutes.GET("/databases/:db_name/diagram", dbHandler.GetDatabaseSchemaDiagram)
+		apiRoutes.GET("/databases/:db_name/objects", dbHandler.GetDatabaseObjects)
+		apiRoutes.GET("/databases/:db_name/export/sql", dbHandler.ExportDatabaseSQL)
+		apiRoutes.GET("/databases/:db_name/export/sqlite", dbHandler.DownloadDatabaseFile)
 
 		// Schema Management
 		apiRoutes.GET("/databases/:db_name/tables/:table_name/schema", dbHandler.GetSchema)

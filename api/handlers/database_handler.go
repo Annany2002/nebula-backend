@@ -535,3 +535,150 @@ func (h *DatabaseHandler) GetDatabaseAnalytics(c *gin.Context) {
 	c.JSON(http.StatusOK, analytics)
 }
 
+// GetDatabaseSchemaDiagram handles requests for the ER diagram schema and foreign key relationships.
+func (h *DatabaseHandler) GetDatabaseSchemaDiagram(c *gin.Context) {
+	userId := c.MustGet("userId").(string)
+	dbName := c.Param("db_name")
+
+	if !core.IsValidIdentifier(dbName) {
+		_ = c.Error(errors.New("invalid database name in URL path"))
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid database name format."})
+		return
+	}
+
+	dbFilePath, err := storage.FindDatabasePath(c.Request.Context(), h.MetaDB, userId, dbName)
+	if err != nil {
+		_ = c.Error(err)
+		if errors.Is(err, storage.ErrDatabaseNotFound) {
+			c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "Database not found."})
+		} else {
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to locate database."})
+		}
+		return
+	}
+
+	userDB, err := storage.ConnectUserDB(c.Request.Context(), dbFilePath)
+	if err != nil {
+		_ = c.Error(err)
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to connect to database."})
+		return
+	}
+	defer userDB.Close()
+
+	diagram, err := storage.GetDatabaseSchemaDiagram(c.Request.Context(), userDB)
+	if err != nil {
+		_ = c.Error(err)
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate schema diagram."})
+		return
+	}
+
+	c.JSON(http.StatusOK, diagram)
+}
+
+// GetDatabaseObjects handles requests for SQLite indexes and triggers.
+func (h *DatabaseHandler) GetDatabaseObjects(c *gin.Context) {
+	userId := c.MustGet("userId").(string)
+	dbName := c.Param("db_name")
+
+	if !core.IsValidIdentifier(dbName) {
+		_ = c.Error(errors.New("invalid database name in URL path"))
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid database name format."})
+		return
+	}
+
+	dbFilePath, err := storage.FindDatabasePath(c.Request.Context(), h.MetaDB, userId, dbName)
+	if err != nil {
+		_ = c.Error(err)
+		if errors.Is(err, storage.ErrDatabaseNotFound) {
+			c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "Database not found."})
+		} else {
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to locate database."})
+		}
+		return
+	}
+
+	userDB, err := storage.ConnectUserDB(c.Request.Context(), dbFilePath)
+	if err != nil {
+		_ = c.Error(err)
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to connect to database."})
+		return
+	}
+	defer userDB.Close()
+
+	objects, err := storage.GetDatabaseObjects(c.Request.Context(), userDB)
+	if err != nil {
+		_ = c.Error(err)
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch database objects."})
+		return
+	}
+
+	c.JSON(http.StatusOK, objects)
+}
+
+// ExportDatabaseSQL dumps the database schema and data as SQL statements.
+func (h *DatabaseHandler) ExportDatabaseSQL(c *gin.Context) {
+	userId := c.MustGet("userId").(string)
+	dbName := c.Param("db_name")
+
+	if !core.IsValidIdentifier(dbName) {
+		_ = c.Error(errors.New("invalid database name in URL path"))
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid database name format."})
+		return
+	}
+
+	dbFilePath, err := storage.FindDatabasePath(c.Request.Context(), h.MetaDB, userId, dbName)
+	if err != nil {
+		_ = c.Error(err)
+		if errors.Is(err, storage.ErrDatabaseNotFound) {
+			c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "Database not found."})
+		} else {
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to locate database."})
+		}
+		return
+	}
+
+	userDB, err := storage.ConnectUserDB(c.Request.Context(), dbFilePath)
+	if err != nil {
+		_ = c.Error(err)
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to connect to database."})
+		return
+	}
+	defer userDB.Close()
+
+	dump, err := storage.ExportDatabaseSQL(c.Request.Context(), userDB)
+	if err != nil {
+		_ = c.Error(err)
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to export database SQL."})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"sql":      dump,
+		"filename": fmt.Sprintf("%s.sql", dbName),
+	})
+}
+
+// DownloadDatabaseFile downloads the raw SQLite database file directly.
+func (h *DatabaseHandler) DownloadDatabaseFile(c *gin.Context) {
+	userId := c.MustGet("userId").(string)
+	dbName := c.Param("db_name")
+
+	if !core.IsValidIdentifier(dbName) {
+		_ = c.Error(errors.New("invalid database name in URL path"))
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid database name format."})
+		return
+	}
+
+	dbFilePath, err := storage.FindDatabasePath(c.Request.Context(), h.MetaDB, userId, dbName)
+	if err != nil {
+		_ = c.Error(err)
+		if errors.Is(err, storage.ErrDatabaseNotFound) {
+			c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "Database not found."})
+		} else {
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to locate database."})
+		}
+		return
+	}
+
+	c.FileAttachment(dbFilePath, fmt.Sprintf("%s.db", dbName))
+}

@@ -111,3 +111,51 @@ type DatabaseAnalytics struct {
 	Services      []ServiceMetrics `json:"services"`
 	Advisor       []AdvisorIssue   `json:"advisor"`
 }
+
+// ForeignKeyInfo represents foreign key relationship from PRAGMA foreign_key_list
+type ForeignKeyInfo struct {
+	ID        int    `json:"id"`
+	Seq       int    `json:"seq"`
+	Table     string `json:"table"`
+	From      string `json:"from"`
+	To        string `json:"to"`
+	OnUpdate  string `json:"onUpdate"`
+	OnDelete  string `json:"onDelete"`
+}
+
+// TableDiagramInfo represents a table with columns and foreign keys for the visualizer
+type TableDiagramInfo struct {
+	Name        string           `json:"name"`
+	Columns     []ColumnInfo     `json:"columns"`
+	ForeignKeys []ForeignKeyInfo `json:"foreignKeys"`
+	RowCount    int64            `json:"rowCount"`
+	SQL         string           `json:"sql"`
+}
+
+// SchemaDiagram represents complete schema graph for visualizer
+type SchemaDiagram struct {
+	Tables      []TableDiagramInfo `json:"tables"`
+	TotalTables int                `json:"totalTables"`
+	TotalFKs    int                `json:"totalForeignKeys"`
+}
+
+// IndexInfo represents SQLite index metadata
+type IndexInfo struct {
+	Name      string `json:"name"`
+	TableName string `json:"tableName"`
+	Unique    bool   `json:"unique"`
+	SQL       string `json:"sql"`
+}
+
+// TriggerInfo represents SQLite trigger metadata
+type TriggerInfo struct {
+	Name      string `json:"name"`
+	TableName string `json:"tableName"`
+	SQL       string `json:"sql"`
+}
+
+// DatabaseObjects represents SQLite indexes and triggers
+type DatabaseObjects struct {
+	Indexes  []IndexInfo   `json:"indexes"`
+	Triggers []TriggerInfo `json:"triggers"`
+}

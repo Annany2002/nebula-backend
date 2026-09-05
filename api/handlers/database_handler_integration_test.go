@@ -175,5 +175,36 @@ func TestDatabaseStudioEndpoints(t *testing.T) {
 	assert.NotEmpty(t, analyticsRes.Services)
 	assert.NotNil(t, analyticsRes.Advisor)
 
+	// 10. Test Schema Visualizer Diagram endpoint
+	res = doAuthReq("GET", server.URL+"/api/v1/databases/demodb/diagram", nil)
+	assert.Equal(t, http.StatusOK, res.StatusCode)
+	var diagramRes domain.SchemaDiagram
+	err = json.NewDecoder(res.Body).Decode(&diagramRes)
+	require.NoError(t, err)
+	res.Body.Close()
+	assert.Equal(t, 1, diagramRes.TotalTables)
+	assert.Equal(t, "customers", diagramRes.Tables[0].Name)
+	assert.NotEmpty(t, diagramRes.Tables[0].Columns)
+
+	// 11. Test Database Objects endpoint (indexes & triggers)
+	res = doAuthReq("GET", server.URL+"/api/v1/databases/demodb/objects", nil)
+	assert.Equal(t, http.StatusOK, res.StatusCode)
+	var objectsRes domain.DatabaseObjects
+	err = json.NewDecoder(res.Body).Decode(&objectsRes)
+	require.NoError(t, err)
+	res.Body.Close()
+	assert.NotNil(t, objectsRes.Indexes)
+	assert.NotNil(t, objectsRes.Triggers)
+
+	// 12. Test Database SQL Export
+	res = doAuthReq("GET", server.URL+"/api/v1/databases/demodb/export/sql", nil)
+	assert.Equal(t, http.StatusOK, res.StatusCode)
+	var exportRes map[string]string
+	err = json.NewDecoder(res.Body).Decode(&exportRes)
+	require.NoError(t, err)
+	res.Body.Close()
+	assert.Contains(t, exportRes["sql"], "CREATE TABLE customers")
+	assert.Contains(t, exportRes["sql"], "INSERT INTO customers")
+
 	fmt.Println("All Studio backend tests passed!")
 }
