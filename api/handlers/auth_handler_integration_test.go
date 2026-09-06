@@ -85,7 +85,7 @@ func TestAuthEndpoints(t *testing.T) {
 
 	// --- Test Signup ---
 	t.Run("Signup Success", func(t *testing.T) {
-		signupReqBody := models.SignupRequest{Email: testEmail, Password: testPassword}
+		signupReqBody := models.SignupRequest{Email: testEmail, Username: "testuser123", Password: testPassword}
 		bodyBytes, _ := json.Marshal(signupReqBody)
 
 		res, err := http.Post(server.URL+"/auth/signup", "application/json", bytes.NewReader(bodyBytes))
@@ -112,7 +112,7 @@ func TestAuthEndpoints(t *testing.T) {
 
 	t.Run("Signup Conflict (Duplicate Email)", func(t *testing.T) {
 		// Assumes the previous test ran successfully and created the user
-		signupReqBody := models.SignupRequest{Email: testEmail, Password: "anotherPassword"}
+		signupReqBody := models.SignupRequest{Email: testEmail, Username: "anotheruser", Password: "anotherPassword"}
 		bodyBytes, _ := json.Marshal(signupReqBody)
 
 		res, err := http.Post(server.URL+"/auth/signup", "application/json", bytes.NewReader(bodyBytes))
@@ -122,7 +122,7 @@ func TestAuthEndpoints(t *testing.T) {
 	})
 
 	t.Run("Signup Bad Request (Invalid Email Format)", func(t *testing.T) {
-		signupReqBody := models.SignupRequest{Email: "invalid-email-format", Password: testPassword}
+		signupReqBody := models.SignupRequest{Email: "invalid-email-format", Username: "testuser123", Password: testPassword}
 		bodyBytes, _ := json.Marshal(signupReqBody)
 
 		res, err := http.Post(server.URL+"/auth/signup", "application/json", bytes.NewReader(bodyBytes))
@@ -132,7 +132,7 @@ func TestAuthEndpoints(t *testing.T) {
 	})
 
 	t.Run("Signup Bad Request (Short Password)", func(t *testing.T) {
-		signupReqBody := models.SignupRequest{Email: "shortpass@example.com", Password: "short"}
+		signupReqBody := models.SignupRequest{Email: "shortpass@example.com", Username: "testuser123", Password: "short"}
 		bodyBytes, _ := json.Marshal(signupReqBody)
 
 		res, err := http.Post(server.URL+"/auth/signup", "application/json", bytes.NewReader(bodyBytes))
@@ -155,7 +155,7 @@ func TestAuthEndpoints(t *testing.T) {
 		var resBody models.LoginResponse
 		err = json.NewDecoder(res.Body).Decode(&resBody)
 		assert.NoError(err, "Failed to decode login response body")
-		assert.Equal("Login successful", resBody.Message)
+		assert.Equal("Logged in successfully", resBody.Message)
 		assert.NotEmpty(resBody.Token, "Token should not be empty on successful login")
 
 		// Optional: Validate the token structure/claims (basic)
@@ -163,7 +163,7 @@ func TestAuthEndpoints(t *testing.T) {
 		// Using the known test secret from testCfg
 		userID, err := auth.ValidateJWT(resBody.Token, "test_secret_key_for_integration_tests_1234567890")
 		assert.NoError(err, "Returned token should be valid")
-		assert.True(userID == "", "UserID from token should be positive")
+		assert.NotEmpty(userID, "UserID from token should not be empty")
 	})
 
 	t.Run("Login Unauthorized (Wrong Password)", func(t *testing.T) {

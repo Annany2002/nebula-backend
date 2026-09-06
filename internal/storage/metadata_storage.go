@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/mattn/go-sqlite3"
@@ -342,4 +343,274 @@ func DeleteAPIKey(ctx context.Context, db *sql.DB, key string) error {
 	}
 
 	return nil // Success
+}
+
+func formatBytes(b int64) string {
+	const unit = 1024
+	if b < unit {
+		return fmt.Sprintf("%d B", b)
+	}
+	div, exp := int64(unit), 0
+	for n := b / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(b)/float64(div), "KMGTPE"[exp])
+}
+
+// GetDatabaseDetails retrieves detailed database metadata including disk size and total records.
+func GetDatabaseDetails(ctx context.Context, metaDB *sql.DB, userId, dbName string) (*domain.DatabaseDetailMetadata, error) {
+	query := `SELECT database_id, owner_id, db_name, file_path, created_at FROM databases WHERE owner_id = ? AND db_name = ? LIMIT 1;`
+	var detail domain.DatabaseDetailMetadata
+	err := metaDB.QueryRowContext(ctx, query, userId, dbName).Scan(
+		&detail.DatabaseID,
+		&detail.UserID,
+		&detail.DBName,
+		&detail.FilePath,
+		&detail.CreatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrDatabaseNotFound
+		}
+		return nil, fmt.Errorf("database error retrieving details: %w", err)
+	}
+
+	// File size on disk
+	if fi, err := os.Stat(detail.FilePath); err == nil {
+		detail.SizeBytes = fi.Size()
+		detail.SizeDisplay = formatBytes(fi.Size())
+	} else {
+		detail.SizeDisplay = "0 B"
+	}
+
+	// Connect to user database to count tables and total records
+	userDB, err := ConnectUserDB(ctx, detail.FilePath)
+	if err == nil {
+		defer userDB.Close()
+
+		// Count tables
+		_ = userDB.QueryRowContext(ctx, "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_nebula_%';").Scan(&detail.Tables)
+
+		// Sum records across all tables
+		rows, err := userDB.QueryContext(ctx, "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_nebula_%';")
+		if err == nil {
+			defer rows.Close()
+			var totalRecords int64
+			for rows.Next() {
+				var tblName string
+				if err := rows.Scan(&tblName); err == nil {
+					var count int64
+					_ = userDB.QueryRowContext(ctx, fmt.Sprintf("SELECT COUNT(*) FROM %s;", tblName)).Scan(&count)
+					totalRecords += count
+				}
+			}
+			detail.TotalRecords = totalRecords
+		}
+	}
+
+	// Active API Key
+	apiKey, _ := FindAPIKeyByDatabaseId(ctx, metaDB, detail.DatabaseID)
+	detail.APIKey = apiKey
+
+	return &detail, nil
+}
+
+// RecordTelemetry inserts an API request telemetry record.
+func RecordTelemetry(ctx context.Context, metaDB *sql.DB, dbName, endpoint, method string, statusCode int, latencyMs int64) error {
+	query := `INSERT INTO database_telemetry (database_name, endpoint, method, status_code, latency_ms) VALUES (?, ?, ?, ?, ?);`
+	_, err := metaDB.ExecContext(ctx, query, dbName, endpoint, method, statusCode, latencyMs)
+	return err
+}
+
+// GetDatabaseAnalytics aggregates real telemetry and runs SQLite schema advisor checks.
+func GetDatabaseAnalytics(ctx context.Context, metaDB *sql.DB, userId, dbName string) (*domain.DatabaseAnalytics, error) {
+	detail, err := GetDatabaseDetails(ctx, metaDB, userId, dbName)
+	if err != nil {
+		return nil, err
+	}
+
+	analytics := &domain.DatabaseAnalytics{
+		Timeframe: "24h",
+		Services:  make([]domain.ServiceMetrics, 0),
+		Advisor:   make([]domain.AdvisorIssue, 0),
+	}
+
+	// Query total telemetry in the last 24h
+	var totalReqs, successReqs int64
+	err = metaDB.QueryRowContext(ctx, `
+		SELECT 
+			COUNT(*),
+			COALESCE(SUM(CASE WHEN status_code >= 200 AND status_code < 400 THEN 1 ELSE 0 END), 0)
+		FROM database_telemetry 
+		WHERE database_name = ? AND created_at >= datetime('now', '-24 hours');
+	`, dbName).Scan(&totalReqs, &successReqs)
+	if err == nil {
+		analytics.TotalRequests = totalReqs
+		if totalReqs > 0 {
+			analytics.SuccessRate = float64(successReqs) / float64(totalReqs) * 100.0
+		} else {
+			analytics.SuccessRate = 100.0
+		}
+	}
+
+	// Service categories: SQL Engine, Records API, Tables API, Auth & Keys
+	categories := []struct {
+		name    string
+		pattern string
+	}{
+		{"SQL Engine", "%/sql%"},
+		{"Records API", "%/records%"},
+		{"Tables API", "%/tables%"},
+		{"Auth & Keys", "%/apikey%"},
+	}
+
+	for _, cat := range categories {
+		var reqs, warns, errs int64
+		_ = metaDB.QueryRowContext(ctx, `
+			SELECT 
+				COUNT(*),
+				COALESCE(SUM(CASE WHEN status_code >= 400 AND status_code < 500 THEN 1 ELSE 0 END), 0),
+				COALESCE(SUM(CASE WHEN status_code >= 500 THEN 1 ELSE 0 END), 0)
+			FROM database_telemetry 
+			WHERE database_name = ? AND endpoint LIKE ? AND created_at >= datetime('now', '-24 hours');
+		`, dbName, cat.pattern).Scan(&reqs, &warns, &errs)
+
+		history := make([]domain.ServiceMetricBucket, 0)
+		rows, qErr := metaDB.QueryContext(ctx, `
+			SELECT 
+				strftime('%H:00', created_at) as hour_bucket,
+				COUNT(*),
+				COALESCE(SUM(CASE WHEN status_code >= 400 AND status_code < 500 THEN 1 ELSE 0 END), 0),
+				COALESCE(SUM(CASE WHEN status_code >= 500 THEN 1 ELSE 0 END), 0)
+			FROM database_telemetry
+			WHERE database_name = ? AND endpoint LIKE ? AND created_at >= datetime('now', '-24 hours')
+			GROUP BY hour_bucket
+			ORDER BY hour_bucket ASC
+			LIMIT 12;
+		`, dbName, cat.pattern)
+		if qErr == nil {
+			for rows.Next() {
+				var b domain.ServiceMetricBucket
+				if scanErr := rows.Scan(&b.Timestamp, &b.Requests, &b.Warnings, &b.Errors); scanErr == nil {
+					history = append(history, b)
+				}
+			}
+			rows.Close()
+		}
+
+		analytics.Services = append(analytics.Services, domain.ServiceMetrics{
+			Name:     cat.name,
+			Requests: reqs,
+			Warnings: warns,
+			Errors:   errs,
+			History:  history,
+		})
+	}
+
+	// Run Real Schema Advisor on SQLite User DB
+	userDB, err := ConnectUserDB(ctx, detail.FilePath)
+	if err == nil {
+		defer userDB.Close()
+
+		// A. Check Journal Mode
+		var journalMode string
+		if jErr := userDB.QueryRowContext(ctx, "PRAGMA journal_mode;").Scan(&journalMode); jErr == nil {
+			if !strings.EqualFold(journalMode, "wal") {
+				analytics.Advisor = append(analytics.Advisor, domain.AdvisorIssue{
+					ID:          "journal-mode-wal",
+					Category:    "PERFORMANCE",
+					Severity:    "WARNING",
+					Title:       fmt.Sprintf("Database running in '%s' journal mode", strings.ToUpper(journalMode)),
+					Description: "WAL (Write-Ahead Logging) mode is recommended for SQLite to enable concurrent reads without blocking writes.",
+					Suggestion:  "Run 'PRAGMA journal_mode=WAL;' in SQL Editor.",
+				})
+			}
+		}
+
+		// B. Check Foreign Keys enforcement
+		var foreignKeysEnabled int
+		if fkErr := userDB.QueryRowContext(ctx, "PRAGMA foreign_keys;").Scan(&foreignKeysEnabled); fkErr == nil {
+			if foreignKeysEnabled == 0 {
+				analytics.Advisor = append(analytics.Advisor, domain.AdvisorIssue{
+					ID:          "foreign-keys-disabled",
+					Category:    "SECURITY",
+					Severity:    "INFO",
+					Title:       "Foreign Key constraints not enforced by default",
+					Description: "SQLite defaults to PRAGMA foreign_keys = OFF, which may allow orphan rows across relations.",
+					Suggestion:  "Enable foreign key enforcement with 'PRAGMA foreign_keys = ON;'.",
+				})
+			}
+		}
+
+		// C. Check Integrity
+		var integrityCheck string
+		if iErr := userDB.QueryRowContext(ctx, "PRAGMA integrity_check(1);").Scan(&integrityCheck); iErr == nil {
+			if !strings.EqualFold(integrityCheck, "ok") {
+				analytics.Advisor = append(analytics.Advisor, domain.AdvisorIssue{
+					ID:          "integrity-failure",
+					Category:    "SECURITY",
+					Severity:    "CRITICAL",
+					Title:       "Database integrity anomaly detected",
+					Description: fmt.Sprintf("SQLite PRAGMA integrity_check returned: %s", integrityCheck),
+					Suggestion:  "Review SQLite file corruption or restore from a backup.",
+				})
+			}
+		}
+
+		// D. Check Tables for missing Primary Keys and Empty status
+		tblRows, tErr := userDB.QueryContext(ctx, "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_nebula_%';")
+		if tErr == nil {
+			for tblRows.Next() {
+				var tblName string
+				if sErr := tblRows.Scan(&tblName); sErr == nil {
+					infoRows, pErr := userDB.QueryContext(ctx, fmt.Sprintf("PRAGMA table_info(%s);", tblName))
+					hasPK := false
+					if pErr == nil {
+						for infoRows.Next() {
+							var cid, pk, notnull int
+							var colName, colType string
+							var dfltVal any
+							if scanErr := infoRows.Scan(&cid, &colName, &colType, &notnull, &dfltVal, &pk); scanErr == nil {
+								if pk > 0 {
+									hasPK = true
+								}
+							}
+						}
+						infoRows.Close()
+					}
+
+					if !hasPK {
+						analytics.Advisor = append(analytics.Advisor, domain.AdvisorIssue{
+							ID:          fmt.Sprintf("missing-pk-%s", tblName),
+							Category:    "SECURITY",
+							Severity:    "CRITICAL",
+							Title:       fmt.Sprintf("Table '%s' has no Primary Key", tblName),
+							Description: fmt.Sprintf("Records in '%s' cannot be uniquely identified, impacting reliable row mutations.", tblName),
+							TableName:   tblName,
+							Suggestion:  fmt.Sprintf("Add a PRIMARY KEY column to table '%s'.", tblName),
+						})
+					}
+
+					var rowCount int64
+					if countErr := userDB.QueryRowContext(ctx, fmt.Sprintf("SELECT COUNT(*) FROM %s;", tblName)).Scan(&rowCount); countErr == nil {
+						if rowCount == 0 {
+							analytics.Advisor = append(analytics.Advisor, domain.AdvisorIssue{
+								ID:          fmt.Sprintf("empty-table-%s", tblName),
+								Category:    "SCHEMA",
+								Severity:    "INFO",
+								Title:       fmt.Sprintf("Table '%s' contains 0 records", tblName),
+								Description: fmt.Sprintf("Schema is configured for '%s', but no rows have been inserted.", tblName),
+								TableName:   tblName,
+								Suggestion:  "Insert records using Table Editor or SQL Runner.",
+							})
+						}
+					}
+				}
+			}
+			tblRows.Close()
+		}
+	}
+
+	return analytics, nil
 }

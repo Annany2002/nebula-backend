@@ -41,6 +41,7 @@ type TableMetadata struct {
 	RootPage  string       `json:"rootpage"`
 	Sql       string       `json:"sql"`
 	CreatedAt time.Time    `json:"createdAt"`
+	RowCount  int64        `json:"rowCount"`
 	Columns   []ColumnInfo `json:"columns"`
 }
 
@@ -48,4 +49,113 @@ type TableSchemaMetaData struct {
 	Name       string `json:"name"`
 	Type       string `json:"type"`
 	PrimaryKey bool   `json:"pk"`
+}
+
+// SQLQueryResult represents result of an executed SQL query
+type SQLQueryResult struct {
+	Columns      []string `json:"columns,omitempty"`
+	Rows         [][]any  `json:"rows,omitempty"`
+	RowCount     int64    `json:"rowCount"`
+	RowsAffected int64    `json:"rowsAffected"`
+	ExecutionMs  int64    `json:"executionMs"`
+	Message      string   `json:"message,omitempty"`
+}
+
+// DatabaseDetailMetadata represents detailed single database information
+type DatabaseDetailMetadata struct {
+	DatabaseID   int64     `json:"databaseId"`
+	UserID       string    `json:"userId"`
+	DBName       string    `json:"dbName"`
+	FilePath     string    `json:"filePath"`
+	CreatedAt    time.Time `json:"createdAt"`
+	Tables       int64     `json:"tables"`
+	TotalRecords int64     `json:"totalRecords"`
+	SizeBytes    int64     `json:"sizeBytes"`
+	SizeDisplay  string    `json:"sizeDisplay"`
+	APIKey       string    `json:"apiKey"`
+}
+
+// ServiceMetricBucket represents hourly or aggregate metric for a service category
+type ServiceMetricBucket struct {
+	Timestamp string `json:"timestamp"`
+	Requests  int64  `json:"requests"`
+	Warnings  int64  `json:"warnings"`
+	Errors    int64  `json:"errors"`
+}
+
+// ServiceMetrics represents a service card metrics breakdown
+type ServiceMetrics struct {
+	Name     string                `json:"name"`     // "SQL Engine", "Records API", "Tables API", "Auth & Keys"
+	Requests int64                 `json:"requests"` // Total requests
+	Warnings int64                 `json:"warnings"` // 4xx status codes
+	Errors   int64                 `json:"errors"`   // 5xx status codes
+	History  []ServiceMetricBucket `json:"history"`  // Hourly breakdown for bar charts
+}
+
+// AdvisorIssue represents a real schema or security finding on SQLite
+type AdvisorIssue struct {
+	ID          string `json:"id"`
+	Category    string `json:"category"` // "SECURITY", "PERFORMANCE", "SCHEMA"
+	Severity    string `json:"severity"` // "CRITICAL", "WARNING", "INFO"
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	TableName   string `json:"tableName,omitempty"`
+	Suggestion  string `json:"suggestion"`
+}
+
+// DatabaseAnalytics represents complete analytics and advisor report
+type DatabaseAnalytics struct {
+	TotalRequests int64            `json:"totalRequests"`
+	SuccessRate   float64          `json:"successRate"`
+	Timeframe     string           `json:"timeframe"` // "24h"
+	Services      []ServiceMetrics `json:"services"`
+	Advisor       []AdvisorIssue   `json:"advisor"`
+}
+
+// ForeignKeyInfo represents foreign key relationship from PRAGMA foreign_key_list
+type ForeignKeyInfo struct {
+	ID       int    `json:"id"`
+	Seq      int    `json:"seq"`
+	Table    string `json:"table"`
+	From     string `json:"from"`
+	To       string `json:"to"`
+	OnUpdate string `json:"onUpdate"`
+	OnDelete string `json:"onDelete"`
+}
+
+// TableDiagramInfo represents a table with columns and foreign keys for the visualizer
+type TableDiagramInfo struct {
+	Name        string           `json:"name"`
+	Columns     []ColumnInfo     `json:"columns"`
+	ForeignKeys []ForeignKeyInfo `json:"foreignKeys"`
+	RowCount    int64            `json:"rowCount"`
+	SQL         string           `json:"sql"`
+}
+
+// SchemaDiagram represents complete schema graph for visualizer
+type SchemaDiagram struct {
+	Tables      []TableDiagramInfo `json:"tables"`
+	TotalTables int                `json:"totalTables"`
+	TotalFKs    int                `json:"totalForeignKeys"`
+}
+
+// IndexInfo represents SQLite index metadata
+type IndexInfo struct {
+	Name      string `json:"name"`
+	TableName string `json:"tableName"`
+	Unique    bool   `json:"unique"`
+	SQL       string `json:"sql"`
+}
+
+// TriggerInfo represents SQLite trigger metadata
+type TriggerInfo struct {
+	Name      string `json:"name"`
+	TableName string `json:"tableName"`
+	SQL       string `json:"sql"`
+}
+
+// DatabaseObjects represents SQLite indexes and triggers
+type DatabaseObjects struct {
+	Indexes  []IndexInfo   `json:"indexes"`
+	Triggers []TriggerInfo `json:"triggers"`
 }

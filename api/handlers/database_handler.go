@@ -98,6 +98,80 @@ func (h *DatabaseHandler) ListDatabases(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"databases": userDb})
 }
 
+// GetDatabase handles requests to retrieve detailed metadata for a single database.
+func (h *DatabaseHandler) GetDatabase(c *gin.Context) {
+	userId := c.MustGet("userId").(string)
+	dbName := c.Param("db_name")
+
+	if !core.IsValidIdentifier(dbName) {
+		_ = c.Error(errors.New("invalid database name in URL path"))
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid database name format."})
+		return
+	}
+
+	detail, err := storage.GetDatabaseDetails(c.Request.Context(), h.MetaDB, userId, dbName)
+	if err != nil {
+		_ = c.Error(err)
+		if errors.Is(err, storage.ErrDatabaseNotFound) {
+			c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "Database not found."})
+		} else {
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve database details."})
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"database": detail})
+}
+
+// ExecuteSQL handles requests to execute arbitrary SQL on the user's database.
+func (h *DatabaseHandler) ExecuteSQL(c *gin.Context) {
+	userId := c.MustGet("userId").(string)
+	dbName := c.Param("db_name")
+
+	if !core.IsValidIdentifier(dbName) {
+		_ = c.Error(errors.New("invalid database name in URL path"))
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid database name format."})
+		return
+	}
+
+	var req struct {
+		Query string `json:"query" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		_ = c.Error(err)
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid request body: 'query' is required."})
+		return
+	}
+
+	dbFilePath, err := storage.FindDatabasePath(c.Request.Context(), h.MetaDB, userId, dbName)
+	if err != nil {
+		_ = c.Error(err)
+		if errors.Is(err, storage.ErrDatabaseNotFound) {
+			c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "Database not found."})
+		} else {
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to locate database."})
+		}
+		return
+	}
+
+	userDB, err := storage.ConnectUserDB(c.Request.Context(), dbFilePath)
+	if err != nil {
+		_ = c.Error(err)
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to connect to database."})
+		return
+	}
+	defer userDB.Close()
+
+	result, err := storage.ExecuteSQL(c.Request.Context(), userDB, req.Query)
+	if err != nil {
+		_ = c.Error(err)
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, result)
+}
+
 // DeleteDatabase handles requests to delete a database registration and its file.
 func (h *DatabaseHandler) DeleteDatabase(c *gin.Context) {
 	userId := c.MustGet("userId").(string)
@@ -434,4 +508,177 @@ func (h *DatabaseHandler) DeleteAPIKey(c *gin.Context) {
 	}
 
 	c.Status(http.StatusNoContent)
+}
+
+// GetDatabaseAnalytics retrieves real request telemetry analytics and schema advisor insights.
+func (h *DatabaseHandler) GetDatabaseAnalytics(c *gin.Context) {
+	userId := c.MustGet("userId").(string)
+	dbName := c.Param("db_name")
+
+	if !core.IsValidIdentifier(dbName) {
+		_ = c.Error(errors.New("invalid database name in URL path"))
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid database name format."})
+		return
+	}
+
+	analytics, err := storage.GetDatabaseAnalytics(c.Request.Context(), h.MetaDB, userId, dbName)
+	if err != nil {
+		_ = c.Error(err)
+		if errors.Is(err, storage.ErrDatabaseNotFound) {
+			c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "Database not found."})
+		} else {
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to compute database analytics."})
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, analytics)
+}
+
+// GetDatabaseSchemaDiagram handles requests for the ER diagram schema and foreign key relationships.
+func (h *DatabaseHandler) GetDatabaseSchemaDiagram(c *gin.Context) {
+	userId := c.MustGet("userId").(string)
+	dbName := c.Param("db_name")
+
+	if !core.IsValidIdentifier(dbName) {
+		_ = c.Error(errors.New("invalid database name in URL path"))
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid database name format."})
+		return
+	}
+
+	dbFilePath, err := storage.FindDatabasePath(c.Request.Context(), h.MetaDB, userId, dbName)
+	if err != nil {
+		_ = c.Error(err)
+		if errors.Is(err, storage.ErrDatabaseNotFound) {
+			c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "Database not found."})
+		} else {
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to locate database."})
+		}
+		return
+	}
+
+	userDB, err := storage.ConnectUserDB(c.Request.Context(), dbFilePath)
+	if err != nil {
+		_ = c.Error(err)
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to connect to database."})
+		return
+	}
+	defer userDB.Close()
+
+	diagram, err := storage.GetDatabaseSchemaDiagram(c.Request.Context(), userDB)
+	if err != nil {
+		_ = c.Error(err)
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate schema diagram."})
+		return
+	}
+
+	c.JSON(http.StatusOK, diagram)
+}
+
+// GetDatabaseObjects handles requests for SQLite indexes and triggers.
+func (h *DatabaseHandler) GetDatabaseObjects(c *gin.Context) {
+	userId := c.MustGet("userId").(string)
+	dbName := c.Param("db_name")
+
+	if !core.IsValidIdentifier(dbName) {
+		_ = c.Error(errors.New("invalid database name in URL path"))
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid database name format."})
+		return
+	}
+
+	dbFilePath, err := storage.FindDatabasePath(c.Request.Context(), h.MetaDB, userId, dbName)
+	if err != nil {
+		_ = c.Error(err)
+		if errors.Is(err, storage.ErrDatabaseNotFound) {
+			c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "Database not found."})
+		} else {
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to locate database."})
+		}
+		return
+	}
+
+	userDB, err := storage.ConnectUserDB(c.Request.Context(), dbFilePath)
+	if err != nil {
+		_ = c.Error(err)
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to connect to database."})
+		return
+	}
+	defer userDB.Close()
+
+	objects, err := storage.GetDatabaseObjects(c.Request.Context(), userDB)
+	if err != nil {
+		_ = c.Error(err)
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch database objects."})
+		return
+	}
+
+	c.JSON(http.StatusOK, objects)
+}
+
+// ExportDatabaseSQL dumps the database schema and data as SQL statements.
+func (h *DatabaseHandler) ExportDatabaseSQL(c *gin.Context) {
+	userId := c.MustGet("userId").(string)
+	dbName := c.Param("db_name")
+
+	if !core.IsValidIdentifier(dbName) {
+		_ = c.Error(errors.New("invalid database name in URL path"))
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid database name format."})
+		return
+	}
+
+	dbFilePath, err := storage.FindDatabasePath(c.Request.Context(), h.MetaDB, userId, dbName)
+	if err != nil {
+		_ = c.Error(err)
+		if errors.Is(err, storage.ErrDatabaseNotFound) {
+			c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "Database not found."})
+		} else {
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to locate database."})
+		}
+		return
+	}
+
+	userDB, err := storage.ConnectUserDB(c.Request.Context(), dbFilePath)
+	if err != nil {
+		_ = c.Error(err)
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to connect to database."})
+		return
+	}
+	defer userDB.Close()
+
+	dump, err := storage.ExportDatabaseSQL(c.Request.Context(), userDB)
+	if err != nil {
+		_ = c.Error(err)
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to export database SQL."})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"sql":      dump,
+		"filename": fmt.Sprintf("%s.sql", dbName),
+	})
+}
+
+// DownloadDatabaseFile downloads the raw SQLite database file directly.
+func (h *DatabaseHandler) DownloadDatabaseFile(c *gin.Context) {
+	userId := c.MustGet("userId").(string)
+	dbName := c.Param("db_name")
+
+	if !core.IsValidIdentifier(dbName) {
+		_ = c.Error(errors.New("invalid database name in URL path"))
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid database name format."})
+		return
+	}
+
+	dbFilePath, err := storage.FindDatabasePath(c.Request.Context(), h.MetaDB, userId, dbName)
+	if err != nil {
+		_ = c.Error(err)
+		if errors.Is(err, storage.ErrDatabaseNotFound) {
+			c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "Database not found."})
+		} else {
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to locate database."})
+		}
+		return
+	}
+
+	c.FileAttachment(dbFilePath, fmt.Sprintf("%s.db", dbName))
 }

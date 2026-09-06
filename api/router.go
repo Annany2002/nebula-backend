@@ -36,7 +36,11 @@ func SetupRouter(metaDB *sql.DB, cfg *config.Config) *gin.Engine {
 	allowedOrigins := os.Getenv("ALLOWED_ORIGINS")
 
 	config := cors.DefaultConfig()
-	config.AllowOrigins = strings.Split(allowedOrigins, " ")
+	if allowedOrigins == "" || allowedOrigins == "*" {
+		config.AllowAllOrigins = true
+	} else {
+		config.AllowOrigins = strings.Fields(allowedOrigins)
+	}
 	config.AllowMethods = []string{"POST", "OPTIONS", "GET", "PUT", "DELETE"} // Allows these methods.
 	config.AllowHeaders = []string{"Origin", "Content-Type", "Authorization"} // Allows these headers.
 
@@ -49,6 +53,7 @@ func SetupRouter(metaDB *sql.DB, cfg *config.Config) *gin.Engine {
 	// but before the routing happens, so it wraps the handlers.
 
 	router.Use(middleware.ErrorHandler())
+	router.Use(middleware.TelemetryMiddleware(metaDB))
 
 	// Initialize Handlers
 	authHandler := handlers.NewAuthHandler(metaDB, cfg)
@@ -112,10 +117,17 @@ func SetupRouter(metaDB *sql.DB, cfg *config.Config) *gin.Engine {
 		apiRoutes.GET("/user/:user_id", authHandler.FindUser)
 		// apiRoutes.GET("/user/me", authHandler.GetUser)
 
-		// Databases Manangement
+		// Databases Management
 		apiRoutes.GET("/databases", dbHandler.ListDatabases)
 		apiRoutes.POST("/databases", dbHandler.CreateDatabase)
+		apiRoutes.GET("/databases/:db_name", dbHandler.GetDatabase)
 		apiRoutes.DELETE("/databases/:db_name", dbHandler.DeleteDatabase)
+		apiRoutes.POST("/databases/:db_name/sql", dbHandler.ExecuteSQL)
+		apiRoutes.GET("/databases/:db_name/analytics", dbHandler.GetDatabaseAnalytics)
+		apiRoutes.GET("/databases/:db_name/diagram", dbHandler.GetDatabaseSchemaDiagram)
+		apiRoutes.GET("/databases/:db_name/objects", dbHandler.GetDatabaseObjects)
+		apiRoutes.GET("/databases/:db_name/export/sql", dbHandler.ExportDatabaseSQL)
+		apiRoutes.GET("/databases/:db_name/export/sqlite", dbHandler.DownloadDatabaseFile)
 
 		// Schema Management
 		apiRoutes.GET("/databases/:db_name/tables/:table_name/schema", dbHandler.GetSchema)
