@@ -52,7 +52,7 @@ func TestDatabaseStudioEndpoints(t *testing.T) {
 			req, _ = http.NewRequest(method, url, bytes.NewReader(body))
 			req.Header.Set("Content-Type", "application/json")
 		} else {
-			req, _ = http.NewRequest(method, url, nil)
+			req, _ = http.NewRequest(method, url, http.NoBody)
 		}
 		req.Header.Set("Authorization", "Bearer "+jwtToken)
 		client := &http.Client{}

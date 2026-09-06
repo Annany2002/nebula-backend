@@ -114,13 +114,13 @@ type DatabaseAnalytics struct {
 
 // ForeignKeyInfo represents foreign key relationship from PRAGMA foreign_key_list
 type ForeignKeyInfo struct {
-	ID        int    `json:"id"`
-	Seq       int    `json:"seq"`
-	Table     string `json:"table"`
-	From      string `json:"from"`
-	To        string `json:"to"`
-	OnUpdate  string `json:"onUpdate"`
-	OnDelete  string `json:"onDelete"`
+	ID       int    `json:"id"`
+	Seq      int    `json:"seq"`
+	Table    string `json:"table"`
+	From     string `json:"from"`
+	To       string `json:"to"`
+	OnUpdate string `json:"onUpdate"`
+	OnDelete string `json:"onDelete"`
 }
 
 // TableDiagramInfo represents a table with columns and foreign keys for the visualizer

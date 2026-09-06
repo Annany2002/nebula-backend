@@ -516,7 +516,7 @@ func GetDatabaseAnalytics(ctx context.Context, metaDB *sql.DB, userId, dbName st
 		// A. Check Journal Mode
 		var journalMode string
 		if jErr := userDB.QueryRowContext(ctx, "PRAGMA journal_mode;").Scan(&journalMode); jErr == nil {
-			if strings.ToLower(journalMode) != "wal" {
+			if !strings.EqualFold(journalMode, "wal") {
 				analytics.Advisor = append(analytics.Advisor, domain.AdvisorIssue{
 					ID:          "journal-mode-wal",
 					Category:    "PERFORMANCE",
@@ -546,7 +546,7 @@ func GetDatabaseAnalytics(ctx context.Context, metaDB *sql.DB, userId, dbName st
 		// C. Check Integrity
 		var integrityCheck string
 		if iErr := userDB.QueryRowContext(ctx, "PRAGMA integrity_check(1);").Scan(&integrityCheck); iErr == nil {
-			if strings.ToLower(integrityCheck) != "ok" {
+			if !strings.EqualFold(integrityCheck, "ok") {
 				analytics.Advisor = append(analytics.Advisor, domain.AdvisorIssue{
 					ID:          "integrity-failure",
 					Category:    "SECURITY",

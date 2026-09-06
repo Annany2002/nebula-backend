@@ -868,14 +868,15 @@ func ExportDatabaseSQL(ctx context.Context, userDB *sql.DB) (string, error) {
 					if err := rows.Scan(scanArgs...); err == nil {
 						valStrs := make([]string, len(cols))
 						for i, v := range values {
-							if v == nil {
+							switch val := v.(type) {
+							case nil:
 								valStrs[i] = "NULL"
-							} else if str, ok := v.(string); ok {
-								valStrs[i] = fmt.Sprintf("'%s'", strings.ReplaceAll(str, "'", "''"))
-							} else if b, ok := v.([]byte); ok {
-								valStrs[i] = fmt.Sprintf("'%s'", strings.ReplaceAll(string(b), "'", "''"))
-							} else {
-								valStrs[i] = fmt.Sprintf("%v", v)
+							case string:
+								valStrs[i] = fmt.Sprintf("'%s'", strings.ReplaceAll(val, "'", "''"))
+							case []byte:
+								valStrs[i] = fmt.Sprintf("'%s'", strings.ReplaceAll(string(val), "'", "''"))
+							default:
+								valStrs[i] = fmt.Sprintf("%v", val)
 							}
 						}
 						sb.WriteString(fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s);\n",
