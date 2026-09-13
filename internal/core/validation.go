@@ -32,3 +32,23 @@ func NormalizeAndValidateType(colType string) (string, bool) {
 	// Could add extra checks here if needed (e.g., disallow specific types in certain contexts)
 	return normalizedType, ok
 }
+
+// Allowed SQLite foreign key actions
+var AllowedForeignKeyActions = map[string]string{
+	"CASCADE":     "CASCADE",
+	"SET NULL":    "SET NULL",
+	"SET DEFAULT": "SET DEFAULT",
+	"RESTRICT":    "RESTRICT",
+	"NO ACTION":   "NO ACTION",
+}
+
+// NormalizeForeignKeyAction validates and normalizes an ON DELETE or ON UPDATE action.
+// Returns empty string and true if action is empty (defaults to SQLite default).
+func NormalizeForeignKeyAction(action string) (string, bool) {
+	trimmed := strings.TrimSpace(action)
+	if trimmed == "" {
+		return "", true
+	}
+	normalized, ok := AllowedForeignKeyActions[strings.ToUpper(trimmed)]
+	return normalized, ok
+}
