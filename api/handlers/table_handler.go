@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -90,48 +89,11 @@ func (h *TableHandler) processSchemaRequest(c *gin.Context, dbName, dbFilePath s
 		return
 	}
 
-	if !core.IsValidIdentifier(req.TableName) {
-		_ = c.Error(errors.New("invalid table name format"))
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid table name format."})
+	createTableSQL, err := core.BuildCreateTableSQL(&req)
+	if err != nil {
+		_ = c.Error(err)
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
-	}
-
-	// Support both Columns and Schema fields
-	columns := req.Columns
-	if len(columns) == 0 {
-		columns = req.Schema
-	}
-
-	if len(columns) == 0 {
-		_ = c.Error(errors.New("no columns provided"))
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "No columns provided in 'columns' or 'schema' field."})
-		return
-	}
-
-	var columnDefs []string
-	columnNames := make(map[string]bool)
-
-	for _, col := range columns {
-		colNameLower := strings.ToLower(col.Name)
-		if !core.IsValidIdentifier(col.Name) || colNameLower == "id" {
-			_ = c.Error(fmt.Errorf("invalid column name: %s", col.Name))
-			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid column name '%s'. Use valid identifiers, cannot be 'id'.", col.Name)})
-			return
-		}
-		if columnNames[colNameLower] {
-			_ = c.Error(fmt.Errorf("duplicate column name: %s", col.Name))
-			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Duplicate column name '%s'.", col.Name)})
-			return
-		}
-		columnNames[colNameLower] = true
-
-		normalizedType, ok := core.NormalizeAndValidateType(col.Type)
-		if !ok {
-			_ = c.Error(fmt.Errorf("invalid column type: %s", col.Type))
-			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid type '%s' for column '%s'.", col.Type, col.Name)})
-			return
-		}
-		columnDefs = append(columnDefs, fmt.Sprintf("%s %s", col.Name, normalizedType))
 	}
 
 	userDB, err := storage.ConnectUserDB(c.Request.Context(), dbFilePath)
@@ -142,15 +104,10 @@ func (h *TableHandler) processSchemaRequest(c *gin.Context, dbName, dbFilePath s
 	}
 	defer userDB.Close()
 
-	createTableSQL := fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (id INTEGER PRIMARY KEY AUTOINCREMENT, %s , created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);",
-		req.TableName,
-		strings.Join(columnDefs, ", "),
-	)
-
 	err = storage.CreateTable(c.Request.Context(), userDB, req.TableName, createTableSQL)
 	if err != nil {
 		_ = c.Error(err)
-		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to create table."})
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to create table: " + err.Error()})
 		return
 	}
 

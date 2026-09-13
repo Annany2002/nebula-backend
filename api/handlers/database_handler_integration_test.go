@@ -175,18 +175,53 @@ func TestDatabaseStudioEndpoints(t *testing.T) {
 	assert.NotEmpty(t, analyticsRes.Services)
 	assert.NotNil(t, analyticsRes.Advisor)
 
-	// 10. Test Schema Visualizer Diagram endpoint
+	// 10. Create table with Foreign Key constraint referencing customers(id)
+	createOrdersReq := models.CreateSchemaRequest{
+		TableName: "orders",
+		Columns: []models.ColumnDefinition{
+			{
+				Name: "customer_id",
+				Type: "INTEGER",
+				ForeignKey: &models.ForeignKeyDefinition{
+					TargetTable:  "customers",
+					TargetColumn: "id",
+					OnDelete:     "CASCADE",
+				},
+			},
+			{Name: "amount", Type: "REAL"},
+		},
+	}
+	createOrdersBytes, _ := json.Marshal(createOrdersReq)
+	res = doAuthReq("POST", server.URL+"/api/v1/databases/demodb/tables", createOrdersBytes)
+	assert.Equal(t, http.StatusCreated, res.StatusCode)
+	res.Body.Close()
+
+	// 11. Test Schema Visualizer Diagram endpoint (verifying foreign key is detected)
 	res = doAuthReq("GET", server.URL+"/api/v1/databases/demodb/diagram", nil)
 	assert.Equal(t, http.StatusOK, res.StatusCode)
 	var diagramRes domain.SchemaDiagram
 	err = json.NewDecoder(res.Body).Decode(&diagramRes)
 	require.NoError(t, err)
 	res.Body.Close()
-	assert.Equal(t, 1, diagramRes.TotalTables)
-	assert.Equal(t, "customers", diagramRes.Tables[0].Name)
-	assert.NotEmpty(t, diagramRes.Tables[0].Columns)
+	assert.Equal(t, 2, diagramRes.TotalTables)
+	assert.Equal(t, 1, diagramRes.TotalFKs)
 
-	// 11. Test Database Objects endpoint (indexes & triggers)
+	// Find orders table and verify FK
+	var ordersTable *domain.TableDiagramInfo
+	for i := range diagramRes.Tables {
+		if diagramRes.Tables[i].Name == "orders" {
+			ordersTable = &diagramRes.Tables[i]
+			break
+		}
+	}
+	require.NotNil(t, ordersTable)
+	require.Len(t, ordersTable.ForeignKeys, 1)
+	assert.Equal(t, "customers", ordersTable.ForeignKeys[0].Table)
+	assert.Equal(t, "customer_id", ordersTable.ForeignKeys[0].From)
+	assert.Equal(t, "id", ordersTable.ForeignKeys[0].To)
+	assert.Equal(t, "CASCADE", ordersTable.ForeignKeys[0].OnDelete)
+
+	// 12. Test Database Objects endpoint (indexes & triggers)
 	res = doAuthReq("GET", server.URL+"/api/v1/databases/demodb/objects", nil)
 	assert.Equal(t, http.StatusOK, res.StatusCode)
 	var objectsRes domain.DatabaseObjects
