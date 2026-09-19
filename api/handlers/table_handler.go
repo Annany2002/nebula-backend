@@ -194,3 +194,59 @@ func (h *TableHandler) DeleteTable(c *gin.Context) {
 
 	c.Status(http.StatusNoContent) // Return 204 No Content on success
 }
+
+// AlterTable handles requests to alter a table schema (add, drop, rename columns, rename table).
+func (h *TableHandler) AlterTable(c *gin.Context) {
+	targetTableName := c.Param("table_name")
+
+	if !core.IsValidIdentifier(targetTableName) {
+		err := fmt.Errorf("%w: invalid table name in URL path", nebulaErrors.ErrBadRequest)
+		_ = c.Error(err)
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid table name in URL path."})
+		return
+	}
+
+	var req models.AlterTableRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		_ = c.Error(fmt.Errorf("binding error: %w", err))
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid request body: " + err.Error()})
+		return
+	}
+
+	statements, finalTableName, err := core.BuildAlterTableStatements(targetTableName, &req)
+	if err != nil {
+		_ = c.Error(err)
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	userDB, dbName, err := h.checkScopeAndGetUserDB(c)
+	if err != nil {
+		_ = c.Error(err)
+		return
+	}
+	defer userDB.Close()
+
+	customLog.Printf("Handler: Executing %d ALTER TABLE statement(s) on table '%s' in DB '%s'", len(statements), targetTableName, dbName)
+
+	err = storage.AlterTable(c.Request.Context(), userDB, targetTableName, finalTableName, statements)
+	if err != nil {
+		_ = c.Error(err)
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to alter table: " + err.Error()})
+		return
+	}
+
+	// Fetch updated table schema to return
+	updatedSchema, err := storage.ListUserTableSchema(c.Request.Context(), userDB, finalTableName)
+	if err != nil {
+		customLog.Warnf("Handler: Warning - could not fetch updated schema: %v", err)
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message":    fmt.Sprintf("Table '%s' altered successfully", targetTableName),
+		"db_name":    dbName,
+		"table_name": finalTableName,
+		"statements": statements,
+		"schema":     updatedSchema,
+	})
+}

@@ -243,3 +243,135 @@ func TestDatabaseStudioEndpoints(t *testing.T) {
 
 	fmt.Println("All Studio backend tests passed!")
 }
+
+func TestTableAlterEndpoints(t *testing.T) {
+	server, _, cleanup := setupTestServer(t)
+	defer cleanup()
+
+	// 1. Signup & Login
+	signupReq := models.SignupRequest{
+		Email:    "alter_user@example.com",
+		Username: "alteruser",
+		Password: "Password123!",
+	}
+	signupBytes, _ := json.Marshal(signupReq)
+	res, err := http.Post(server.URL+"/auth/signup", "application/json", bytes.NewReader(signupBytes))
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, res.StatusCode)
+	res.Body.Close()
+
+	loginReq := models.LoginRequest{
+		Email:    signupReq.Email,
+		Password: signupReq.Password,
+	}
+	loginBytes, _ := json.Marshal(loginReq)
+	res, err = http.Post(server.URL+"/auth/login", "application/json", bytes.NewReader(loginBytes))
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, res.StatusCode)
+
+	var loginRes models.LoginResponse
+	err = json.NewDecoder(res.Body).Decode(&loginRes)
+	require.NoError(t, err)
+	res.Body.Close()
+	jwtToken := loginRes.Token
+
+	doAuthReq := func(method, url string, body []byte) *http.Response {
+		var req *http.Request
+		if body != nil {
+			req, _ = http.NewRequest(method, url, bytes.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+		} else {
+			req, _ = http.NewRequest(method, url, http.NoBody)
+		}
+		req.Header.Set("Authorization", "Bearer "+jwtToken)
+		client := &http.Client{}
+		resp, err := client.Do(req)
+		require.NoError(t, err)
+		return resp
+	}
+
+	// 2. Create DB
+	createDBReq := models.CreateDatabaseRequest{DBName: "alterdb"}
+	createDBBytes, _ := json.Marshal(createDBReq)
+	res = doAuthReq("POST", server.URL+"/api/v1/databases", createDBBytes)
+	assert.Equal(t, http.StatusCreated, res.StatusCode)
+	res.Body.Close()
+
+	// 3. Create Table
+	createTableReq := models.CreateSchemaRequest{
+		TableName: "items",
+		Columns: []models.ColumnDefinition{
+			{Name: "title", Type: "TEXT"},
+			{Name: "price", Type: "REAL"},
+		},
+	}
+	createTableBytes, _ := json.Marshal(createTableReq)
+	res = doAuthReq("POST", server.URL+"/api/v1/databases/alterdb/tables", createTableBytes)
+	assert.Equal(t, http.StatusCreated, res.StatusCode)
+	res.Body.Close()
+
+	// 4. Alter Table: Add column "quantity INTEGER"
+	addColReq := models.AlterTableRequest{
+		Action: "add_column",
+		Column: &models.AlterColumnDefinition{
+			Name: "quantity",
+			Type: "INTEGER",
+		},
+	}
+	addColBytes, _ := json.Marshal(addColReq)
+	res = doAuthReq("POST", server.URL+"/api/v1/databases/alterdb/tables/items/alter", addColBytes)
+	assert.Equal(t, http.StatusOK, res.StatusCode)
+	res.Body.Close()
+
+	// 5. Alter Table: Rename column "price" -> "cost"
+	renameColReq := models.AlterTableRequest{
+		Action:  "rename_column",
+		OldName: "price",
+		NewName: "cost",
+	}
+	renameColBytes, _ := json.Marshal(renameColReq)
+	res = doAuthReq("POST", server.URL+"/api/v1/databases/alterdb/tables/items/alter", renameColBytes)
+	assert.Equal(t, http.StatusOK, res.StatusCode)
+	res.Body.Close()
+
+	// 6. Alter Table: Drop column "title"
+	dropColReq := models.AlterTableRequest{
+		Action:     "drop_column",
+		ColumnName: "title",
+	}
+	dropColBytes, _ := json.Marshal(dropColReq)
+	res = doAuthReq("POST", server.URL+"/api/v1/databases/alterdb/tables/items/alter", dropColBytes)
+	assert.Equal(t, http.StatusOK, res.StatusCode)
+	res.Body.Close()
+
+	// 7. Verify Schema has cost, quantity, id, created_at
+	res = doAuthReq("GET", server.URL+"/api/v1/databases/alterdb/tables/items/schema", nil)
+	assert.Equal(t, http.StatusOK, res.StatusCode)
+	var schemaRes struct {
+		Schema []domain.TableSchemaMetaData `json:"schema"`
+	}
+	err = json.NewDecoder(res.Body).Decode(&schemaRes)
+	require.NoError(t, err)
+	res.Body.Close()
+
+	colNames := make(map[string]bool)
+	for _, c := range schemaRes.Schema {
+		colNames[c.Name] = true
+	}
+	assert.True(t, colNames["id"])
+	assert.True(t, colNames["created_at"])
+	assert.True(t, colNames["cost"])
+	assert.True(t, colNames["quantity"])
+	assert.False(t, colNames["title"])
+	assert.False(t, colNames["price"])
+
+	// 8. Reject dropping reserved column "id"
+	dropIDReq := models.AlterTableRequest{
+		Action:     "drop_column",
+		ColumnName: "id",
+	}
+	dropIDBytes, _ := json.Marshal(dropIDReq)
+	res = doAuthReq("POST", server.URL+"/api/v1/databases/alterdb/tables/items/alter", dropIDBytes)
+	assert.Equal(t, http.StatusBadRequest, res.StatusCode)
+	res.Body.Close()
+}
