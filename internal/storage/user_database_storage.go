@@ -228,6 +228,40 @@ func DropTable(ctx context.Context, userDB *sql.DB, tableName string) error {
 	return nil
 }
 
+// AlterTable executes a sequence of ALTER TABLE statements within a transaction and updates metadata if table was renamed.
+func AlterTable(ctx context.Context, userDB *sql.DB, originalTableName, finalTableName string, statements []string) error {
+	tx, err := userDB.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	for _, stmt := range statements {
+		_, err := tx.ExecContext(ctx, stmt)
+		if err != nil {
+			customLog.Warnf("Storage: Failed ALTER TABLE execution: %v\nSQL: %s", err, stmt)
+			return fmt.Errorf("failed to execute alter statement: %w", err)
+		}
+	}
+
+	// If table was renamed, update _nebula_table_metadata
+	if originalTableName != finalTableName {
+		_, _ = tx.ExecContext(ctx, `
+			UPDATE _nebula_table_metadata 
+			SET table_name = ? 
+			WHERE table_name = ?;
+		`, finalTableName, originalTableName)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit alter table transaction: %w", err)
+	}
+
+	return nil
+}
+
 func ListUserTableSchema(ctx context.Context, userDB *sql.DB, tableName string) ([]domain.TableSchemaMetaData, error) {
 	row := userDB.QueryRow("SELECT sql FROM sqlite_master WHERE type='table' AND name=?", tableName)
 	var schema string

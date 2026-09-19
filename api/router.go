@@ -136,6 +136,7 @@ func SetupRouter(metaDB *sql.DB, cfg *config.Config) *gin.Engine {
 		// Table Management
 		apiRoutes.GET("/databases/:db_name/tables", tableHandler.ListTablesFn)
 		apiRoutes.POST("/databases/:db_name/tables", tableHandler.CreateTable)
+		apiRoutes.POST("/databases/:db_name/tables/:table_name/alter", tableHandler.AlterTable)
 		apiRoutes.DELETE("/databases/:db_name/tables/:table_name", tableHandler.DeleteTable)
 
 		// Record Management
