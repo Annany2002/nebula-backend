@@ -145,11 +145,10 @@ func BuildAddColumnSQL(tableName string, col *models.AlterColumnDefinition) (str
 	if !IsValidIdentifier(colName) {
 		return "", fmt.Errorf("invalid column name '%s'", col.Name)
 	}
-	colLower := strings.ToLower(colName)
-	if colLower == "id" {
+	if strings.EqualFold(colName, "id") {
 		return "", errors.New("column name 'id' is reserved for the primary key")
 	}
-	if colLower == "created_at" {
+	if strings.EqualFold(colName, "created_at") {
 		return "", errors.New("column name 'created_at' is reserved for creation timestamp")
 	}
 	normalizedType, ok := NormalizeAndValidateType(col.Type)
@@ -227,11 +226,10 @@ func BuildDropColumnSQL(tableName, columnName string) (string, error) {
 	if !IsValidIdentifier(colName) {
 		return "", fmt.Errorf("invalid column name '%s'", columnName)
 	}
-	colLower := strings.ToLower(colName)
-	if colLower == "id" {
+	if strings.EqualFold(colName, "id") {
 		return "", errors.New("cannot drop reserved primary key column 'id'")
 	}
-	if colLower == "created_at" {
+	if strings.EqualFold(colName, "created_at") {
 		return "", errors.New("cannot drop reserved timestamp column 'created_at'")
 	}
 
@@ -255,10 +253,10 @@ func BuildRenameColumnSQL(tableName, oldName, newName string) (string, error) {
 	if strings.EqualFold(oldTrimmed, newTrimmed) {
 		return "", errors.New("new column name must be different from current column name")
 	}
-	if strings.ToLower(oldTrimmed) == "id" || strings.ToLower(newTrimmed) == "id" {
+	if strings.EqualFold(oldTrimmed, "id") || strings.EqualFold(newTrimmed, "id") {
 		return "", errors.New("cannot rename reserved primary key column 'id'")
 	}
-	if strings.ToLower(oldTrimmed) == "created_at" || strings.ToLower(newTrimmed) == "created_at" {
+	if strings.EqualFold(oldTrimmed, "created_at") || strings.EqualFold(newTrimmed, "created_at") {
 		return "", errors.New("cannot rename reserved timestamp column 'created_at'")
 	}
 
