@@ -159,9 +159,9 @@ func TestBuildAlterTableStatements(t *testing.T) {
 					Column: &models.AlterColumnDefinition{Name: "role", Type: "TEXT"},
 				},
 				{
-					Action:     "rename_column",
-					OldName:    "notes",
-					NewName:    "remarks",
+					Action:  "rename_column",
+					OldName: "notes",
+					NewName: "remarks",
 				},
 				{
 					Action:     "drop_column",
