@@ -4,7 +4,7 @@
 
 **Open-source Backend-as-a-Service built with Go**
 
-[![Go Version](https://img.shields.io/badge/Go-1.18+-00ADD8?style=flat&logo=go)](https://go.dev/)
+[![Go Version](https://img.shields.io/badge/Go-1.24+-00ADD8?style=flat&logo=go)](https://go.dev/)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
@@ -24,8 +24,10 @@ Nebula is a lightweight **Backend-as-a-Service (BaaS)** that lets you spin up a 
 |---------|-------------|
 | **Dual Authentication** | JWT tokens for user management, API keys for database access |
 | **Dynamic Databases** | Create isolated SQLite databases on-the-fly |
-| **Schema Management** | Define tables with custom columns and types |
+| **Schema Management** | Define tables with custom columns, types, and foreign key relations |
+| **Dynamic Migrations** | Evolve table schemas: add, rename, or drop columns, and rename tables |
 | **Full CRUD** | Create, read, update, delete records with filtering |
+| **Diagrams & Telemetry**| Automated ER relationship graphs and database telemetry tracking |
 | **Rate Limiting** | Built-in IP-based rate limiting |
 | **CORS Support** | Configurable cross-origin policies |
 
@@ -84,20 +86,31 @@ curl -X POST http://localhost:8080/api/v1/databases/myapp/schema \
   -H "Content-Type: application/json" \
   -d '{"table_name": "users", "columns": [{"name": "name", "type": "TEXT"}]}'
 
+# Alter table schema (add, rename, drop columns, or rename table)
+curl -X POST http://localhost:8080/api/v1/databases/myapp/tables/users/alter \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "operations": [
+      {"action": "add_column", "column": {"name": "role", "type": "TEXT", "default_value": "user", "not_null": true}},
+      {"action": "rename_column", "old_name": "name", "new_name": "full_name"}
+    ]
+  }'
+
 # Insert a record
 curl -X POST http://localhost:8080/api/v1/databases/myapp/tables/users/records \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
-  -d '{"name": "John Doe"}'
+  -d '{"full_name": "John Doe", "role": "admin"}'
 ```
 
 ## Tech Stack
 
 | Category | Technology |
 |----------|------------|
-| Language | Go 1.18+ |
+| Language | Go 1.24+ |
 | Framework | Gin |
-| Database | SQLite |
+| Database | SQLite (CGO) |
 | Auth | JWT, API Keys, bcrypt |
 | Linting | golangci-lint |
 
