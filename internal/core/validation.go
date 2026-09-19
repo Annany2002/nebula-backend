@@ -11,11 +11,13 @@ var nameValidationRegex = regexp.MustCompile(`^[a-zA-Z0-9_]+$`)
 
 // Allowed SQLite column types for user definition (uppercase keys and values)
 var AllowedColumnTypes = map[string]string{
-	"TEXT":    "TEXT",
-	"INTEGER": "INTEGER",
-	"REAL":    "REAL",
-	"BLOB":    "BLOB",
-	"BOOLEAN": "BOOLEAN", // Represented as INTEGER in SQLite usually
+	"TEXT":     "TEXT",
+	"INTEGER":  "INTEGER",
+	"REAL":     "REAL",
+	"BLOB":     "BLOB",
+	"BOOLEAN":  "BOOLEAN", // Represented as INTEGER in SQLite usually
+	"DATETIME": "DATETIME",
+	"NUMERIC":  "NUMERIC",
 }
 
 // IsValidIdentifier checks if a string is a valid identifier (e.g., db_name, table_name, column_name)
