@@ -386,9 +386,9 @@ func GetDatabaseDetails(ctx context.Context, metaDB *sql.DB, userId, dbName stri
 }
 
 // RecordTelemetry inserts an API request telemetry record.
-func RecordTelemetry(ctx context.Context, metaDB *sql.DB, dbName, endpoint, method string, statusCode int, latencyMs int64) error {
-	query := `INSERT INTO database_telemetry (database_name, endpoint, method, status_code, latency_ms) VALUES (?, ?, ?, ?, ?);`
-	_, err := metaDB.ExecContext(ctx, query, dbName, endpoint, method, statusCode, latencyMs)
+func RecordTelemetry(ctx context.Context, metaDB *sql.DB, databaseID int64, dbName, endpoint, method string, statusCode int, latencyMs int64) error {
+	query := `INSERT INTO database_telemetry (database_id, database_name, endpoint, method, status_code, latency_ms) VALUES (?, ?, ?, ?, ?, ?);`
+	_, err := metaDB.ExecContext(ctx, query, databaseID, dbName, endpoint, method, statusCode, latencyMs)
 	return err
 }
 
@@ -412,8 +412,8 @@ func GetDatabaseAnalytics(ctx context.Context, metaDB *sql.DB, userId, dbName st
 			COUNT(*),
 			COALESCE(SUM(CASE WHEN status_code >= 200 AND status_code < 400 THEN 1 ELSE 0 END), 0)
 		FROM database_telemetry 
-		WHERE database_name = ? AND created_at >= datetime('now', '-24 hours');
-	`, dbName).Scan(&totalReqs, &successReqs)
+		WHERE database_id = ? AND created_at >= datetime('now', '-24 hours');
+	`, detail.DatabaseID).Scan(&totalReqs, &successReqs)
 	if err == nil {
 		analytics.TotalRequests = totalReqs
 		if totalReqs > 0 {
@@ -442,8 +442,8 @@ func GetDatabaseAnalytics(ctx context.Context, metaDB *sql.DB, userId, dbName st
 				COALESCE(SUM(CASE WHEN status_code >= 400 AND status_code < 500 THEN 1 ELSE 0 END), 0),
 				COALESCE(SUM(CASE WHEN status_code >= 500 THEN 1 ELSE 0 END), 0)
 			FROM database_telemetry 
-			WHERE database_name = ? AND endpoint LIKE ? AND created_at >= datetime('now', '-24 hours');
-		`, dbName, cat.pattern).Scan(&reqs, &warns, &errs)
+			WHERE database_id = ? AND endpoint LIKE ? AND created_at >= datetime('now', '-24 hours');
+		`, detail.DatabaseID, cat.pattern).Scan(&reqs, &warns, &errs)
 
 		history := make([]domain.ServiceMetricBucket, 0)
 		rows, qErr := metaDB.QueryContext(ctx, `
@@ -453,11 +453,11 @@ func GetDatabaseAnalytics(ctx context.Context, metaDB *sql.DB, userId, dbName st
 				COALESCE(SUM(CASE WHEN status_code >= 400 AND status_code < 500 THEN 1 ELSE 0 END), 0),
 				COALESCE(SUM(CASE WHEN status_code >= 500 THEN 1 ELSE 0 END), 0)
 			FROM database_telemetry
-			WHERE database_name = ? AND endpoint LIKE ? AND created_at >= datetime('now', '-24 hours')
+			WHERE database_id = ? AND endpoint LIKE ? AND created_at >= datetime('now', '-24 hours')
 			GROUP BY hour_bucket
 			ORDER BY hour_bucket ASC
 			LIMIT 12;
-		`, dbName, cat.pattern)
+		`, detail.DatabaseID, cat.pattern)
 		if qErr == nil {
 			for rows.Next() {
 				var b domain.ServiceMetricBucket

@@ -121,6 +121,7 @@ func ConnectMetadataDB(cfg *config.Config) (*sql.DB, error) {
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 	);
 	CREATE INDEX IF NOT EXISTS idx_telemetry_db_time ON database_telemetry(database_name, created_at);
+	CREATE INDEX IF NOT EXISTS idx_telemetry_db_id_time ON database_telemetry(database_id, created_at);
 	`
 	if _, err = db.Exec(createTelemetryTableSQL); err != nil {
 		db.Close()

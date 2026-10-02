@@ -19,7 +19,7 @@ func TelemetryMiddleware(metaDB *sql.DB) gin.HandlerFunc {
 		c.Next()
 
 		path := c.Request.URL.Path
-		if !strings.HasPrefix(path, "/api/v1/databases") {
+		if !strings.HasPrefix(path, "/api/v1/databases/") && !strings.HasPrefix(path, "/api/v1/account/databases/") {
 			return
 		}
 
@@ -29,14 +29,13 @@ func TelemetryMiddleware(metaDB *sql.DB) gin.HandlerFunc {
 		}
 
 		dbName := c.Param("db_name")
-		if dbName == "" {
-			parts := strings.Split(strings.TrimPrefix(path, "/api/v1/databases/"), "/")
-			if len(parts) > 0 && parts[0] != "" {
-				dbName = parts[0]
-			}
+		userValue, authenticated := c.Get("userId")
+		userID, ok := userValue.(string)
+		if dbName == "" || !authenticated || !ok {
+			return
 		}
-
-		if dbName == "" {
+		databaseID, err := storage.FindDatabaseIDByNameAndUser(c.Request.Context(), metaDB, userID, dbName)
+		if err != nil {
 			return
 		}
 
@@ -51,7 +50,9 @@ func TelemetryMiddleware(metaDB *sql.DB) gin.HandlerFunc {
 		go func(db string, ep, m string, s int, l int64) {
 			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 			defer cancel()
-			_ = storage.RecordTelemetry(ctx, metaDB, db, ep, m, s, l)
+			if err := storage.RecordTelemetry(ctx, metaDB, databaseID, db, ep, m, s, l); err != nil {
+				customLog.Warnf("Failed to record database telemetry: %v", err)
+			}
 		}(dbName, endpoint, method, status, elapsed)
 	}
 }
