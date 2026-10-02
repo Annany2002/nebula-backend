@@ -240,7 +240,7 @@ func TestDatabaseStudioEndpoints(t *testing.T) {
 	require.NoError(t, err)
 	res.Body.Close()
 	assert.Contains(t, exportRes["sql"], "CREATE TABLE customers")
-	assert.Contains(t, exportRes["sql"], "INSERT INTO customers")
+	assert.Contains(t, exportRes["sql"], `INSERT INTO "customers"`)
 
 	fmt.Println("All Studio backend tests passed!")
 }

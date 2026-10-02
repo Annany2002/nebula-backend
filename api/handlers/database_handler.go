@@ -2,12 +2,14 @@
 package handlers
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -631,5 +633,25 @@ func (h *DatabaseHandler) DownloadDatabaseFile(c *gin.Context) {
 		return
 	}
 
-	c.FileAttachment(dbFilePath, fmt.Sprintf("%s.db", dbName))
+	snapshotDir, err := os.MkdirTemp("", "nebula-export-")
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to prepare database export"})
+		return
+	}
+	defer os.RemoveAll(snapshotDir) //nolint:errcheck // Temporary export cleanup.
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
+	defer cancel()
+	source, err := storage.ConnectUserDB(ctx, dbFilePath)
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to open database export"})
+		return
+	}
+	defer source.Close() //nolint:errcheck
+	snapshotPath := filepath.Join(snapshotDir, "snapshot.db")
+	if err := storage.CreateDatabaseSnapshot(ctx, source, snapshotPath); err != nil {
+		customLog.Warnf("Database snapshot failed: %v", err)
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to snapshot database"})
+		return
+	}
+	c.FileAttachment(snapshotPath, fmt.Sprintf("%s.db", dbName))
 }
