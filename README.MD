@@ -116,6 +116,8 @@ curl -X POST http://localhost:8080/api/v1/databases/myapp/tables/users/records \
 
 ## Development
 
+Development defaults to port 8080. With `APP_ENV=production`, the default is 8085; explicitly set `SERVER_PORT=8085` on the production VPS.
+
 ```bash
 # Install development tools
 make install-tools
