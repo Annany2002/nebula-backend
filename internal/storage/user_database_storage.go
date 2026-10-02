@@ -49,7 +49,7 @@ type PaginationMeta struct {
 func ConnectUserDB(ctx context.Context, filePath string) (*sql.DB, error) {
 	customLog.Printf("Storage: Opening user DB: %s", filePath)
 	// Ensured foreign keys, WAL mode and busy timeout for better concurrency
-	userDb, err := sql.Open("sqlite3", filePath+"?_foreign_keys=on&_journal_mode=WAL&_busy_timeout=5000")
+	userDb, err := sql.Open("nebula_sqlite3", filePath+"?_foreign_keys=on&_journal_mode=WAL&_busy_timeout=5000")
 	if err != nil {
 		customLog.Warnf("Storage: Failed to open user DB file '%s': %v", filePath, err)
 		return nil, fmt.Errorf("failed to access user database storage: %w", err)

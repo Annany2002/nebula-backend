@@ -28,8 +28,8 @@ var (
 	ErrAPIKeyNotFound     = errors.New("api key not found")
 )
 
-const authKeyPrefixMeta = "neb_" // nolint:gosec // API key prefix identifier, not a secret
-const apiKeySecretLength = 32    // Length of the random secret part in bytes
+const authKeyPrefixMeta = "neb_live_" // nolint:gosec // API key prefix identifier, not a secret
+const apiKeySecretLength = 32         // Length of the random secret part in bytes
 
 // --- User Operations ---
 
@@ -199,12 +199,10 @@ func ListUserDatabases(ctx context.Context, db *sql.DB, userId string) ([]domain
 		}
 		userSingleDb.Close()
 
-		apiKey, err := FindAPIKeyByDatabaseId(ctx, db, singleDb.DatabaseID)
-		if err != nil {
-			customLog.Warnf("Error in retrieving api keys for %s: %v", singleDb.DBName, err)
+		metadata, err := FindAPIKeyMetadata(ctx, db, singleDb.DatabaseID)
+		if err == nil {
+			singleDb.APIKeyPrefix = metadata.KeyPrefix
 		}
-
-		singleDb.APIKey = apiKey
 		userDb = append(userDb, singleDb)
 	}
 	if err = rows.Err(); err != nil {
@@ -260,89 +258,59 @@ func FindDatabaseIDByNameAndUser(ctx context.Context, db *sql.DB, userId, dbName
 	return databaseId, nil
 }
 
-// StoreAPIKey generates and stores a new API key scoped to a specific user and database.
-// It returns the *full, unhashed* key (prefix + secret) ONCE upon successful creation.
+// StoreAPIKey creates or rotates the database's key. Only its hash is persisted.
 func StoreAPIKey(ctx context.Context, db *sql.DB, userId string, databaseId int64) (string, error) {
-	// Generate cryptographically secure random bytes for the secret
 	randomBytes := make([]byte, apiKeySecretLength)
-	_, err := rand.Read(randomBytes)
-	if err != nil {
-		customLog.Warnf("Storage: Failed to generate random bytes for API key: %v", err)
+	if _, err := rand.Read(randomBytes); err != nil {
 		return "", ErrAPIKeyGeneration
 	}
-
-	// Encode random bytes to a URL-safe base64 string for the secret part
-	secret := base64.RawURLEncoding.EncodeToString(randomBytes)
-
-	key := authKeyPrefixMeta + secret
-	// Store the prefix, HASHED secret, and other details in the DB
-	insertSQL := `INSERT INTO api_keys (api_owner_id, api_database_id, key) VALUES (?, ?, ?);`
-	_, err = db.ExecContext(ctx, insertSQL, userId, databaseId, key)
+	key := authKeyPrefixMeta + base64.RawURLEncoding.EncodeToString(randomBytes)
+	_, err := db.ExecContext(ctx, `INSERT INTO api_keys (api_owner_id, api_database_id, key, key_prefix)
+ VALUES (?, ?, ?, ?) ON CONFLICT(api_database_id) DO UPDATE SET
+ key = excluded.key, key_prefix = excluded.key_prefix, created_at = CURRENT_TIMESTAMP;`,
+		userId, databaseId, hashAPIKey(key), apiKeyDisplayPrefix(key))
 	if err != nil {
-		// Handle potential constraint violations (e.g., UNIQUE on hashed_key, though collisions are extremely unlikely)
-		customLog.Warnf("Storage: Failed to store API key for UserID %v, DBID %d: %v", userId, databaseId, err)
-		var sqliteErr sqlite3.Error
-		if errors.As(err, &sqliteErr) && sqliteErr.Code == sqlite3.ErrConstraint {
-			return "", ErrConflict
-		}
-		return "", fmt.Errorf("database error storing API key: %w", err)
+		return "", fmt.Errorf("store API key: %w", err)
 	}
-
 	return key, nil
 }
 
-// FindAPIKeyByDatabaseId retrieves potential key for a particular user
-func FindAPIKeyByDatabaseId(ctx context.Context, db *sql.DB, databaseId int64) (string, error) {
-	query := `SELECT key FROM api_keys WHERE api_database_id = ?;`
-	rows, err := db.QueryContext(ctx, query, databaseId)
+func FindAPIKeyMetadata(ctx context.Context, db *sql.DB, databaseId int64) (*domain.APIKeyMetadata, error) {
+	var metadata domain.APIKeyMetadata
+	err := db.QueryRowContext(ctx, `SELECT key_prefix, created_at FROM api_keys WHERE api_database_id = ?`, databaseId).
+		Scan(&metadata.KeyPrefix, &metadata.CreatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrAPIKeyNotFound
+	}
 	if err != nil {
-		customLog.Warnf("Storage: Error querying API keys by database_id  '%d': %v", databaseId, err)
-		// Don't return specific errors like Not Found here, let middleware handle empty results
-		return "", fmt.Errorf("database error finding API keys: %w", err)
+		return nil, fmt.Errorf("find API key metadata: %w", err)
 	}
-	defer rows.Close()
-
-	var key string
-	for rows.Next() {
-		if err := rows.Scan(&key); err != nil {
-			customLog.Warnf("Storage: Error scanning API key data with database_id '%d': %v", databaseId, err)
-			// Return potentially partial results or an error? Let's return error.
-			return "", fmt.Errorf("failed processing API key data: %w", err)
-		}
-
-	}
-	if err = rows.Err(); err != nil {
-		customLog.Warnf("Storage: Error iterating API key results wuth database_id '%d': %v", databaseId, err)
-		return "", fmt.Errorf("failed reading API key data: %w", err)
-	}
-
-	// Returns empty slice if no keys found for the prefix
-	return key, nil
+	return &metadata, nil
 }
 
-// DeleteAPIKey deletes the api key from the database
-func DeleteAPIKey(ctx context.Context, db *sql.DB, key string) error {
-	deleteSQL := `DELETE FROM api_keys WHERE key = ?`
-
-	result, err := db.ExecContext(ctx, deleteSQL, key)
-	if err != nil {
-
-		customLog.Warnf("Storage: Error executing delete api key : %s, DB ", key)
-		return fmt.Errorf("database error deleting registration: %w", err)
+func AuthenticateAPIKey(ctx context.Context, db *sql.DB, key string) (string, int64, error) {
+	var owner string
+	var id int64
+	err := db.QueryRowContext(ctx, `SELECT api_owner_id, api_database_id FROM api_keys WHERE key = ?`, hashAPIKey(key)).Scan(&owner, &id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", 0, ErrAPIKeyNotFound
 	}
+	return owner, id, err
+}
 
-	rowsAffected, err := result.RowsAffected()
+func DeleteAPIKey(ctx context.Context, db *sql.DB, databaseId int64) error {
+	result, err := db.ExecContext(ctx, `DELETE FROM api_keys WHERE api_database_id = ?`, databaseId)
 	if err != nil {
-		customLog.Warnf("Storage: Error getting RowsAffected for delete api key : %s", key)
-		return fmt.Errorf("failed confirming registration deletion: %w", err)
+		return fmt.Errorf("delete API key: %w", err)
 	}
-
-	if rowsAffected == 0 {
-		// No rows matched
+	count, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if count == 0 {
 		return ErrAPIKeyNotFound
 	}
-
-	return nil // Success
+	return nil
 }
 
 func formatBytes(b int64) string {
@@ -409,9 +377,10 @@ func GetDatabaseDetails(ctx context.Context, metaDB *sql.DB, userId, dbName stri
 		}
 	}
 
-	// Active API Key
-	apiKey, _ := FindAPIKeyByDatabaseId(ctx, metaDB, detail.DatabaseID)
-	detail.APIKey = apiKey
+	metadata, err := FindAPIKeyMetadata(ctx, metaDB, detail.DatabaseID)
+	if err == nil {
+		detail.APIKeyPrefix = metadata.KeyPrefix
+	}
 
 	return &detail, nil
 }

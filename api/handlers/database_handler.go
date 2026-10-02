@@ -411,13 +411,16 @@ func (h *DatabaseHandler) GetAPIKey(c *gin.Context) {
 		return
 	}
 
-	api_key, err := storage.FindAPIKeyByDatabaseId(c.Request.Context(), h.MetaDB, databaseID)
+	metadata, err := storage.FindAPIKeyMetadata(c.Request.Context(), h.MetaDB, databaseID)
 	if err != nil {
-		c.JSON(500, gin.H{"error": err})
+		if errors.Is(err, storage.ErrAPIKeyNotFound) {
+			c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "API key not found"})
+		} else {
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve API key metadata"})
+		}
 		return
 	}
-
-	c.JSON(200, gin.H{"key": api_key})
+	c.JSON(http.StatusOK, metadata)
 }
 
 func (h *DatabaseHandler) DeleteAPIKey(c *gin.Context) {
@@ -445,20 +448,13 @@ func (h *DatabaseHandler) DeleteAPIKey(c *gin.Context) {
 		return
 	}
 
-	key, err := storage.FindAPIKeyByDatabaseId(c.Request.Context(), h.MetaDB, databaseId)
-
+	err = storage.DeleteAPIKey(c.Request.Context(), h.MetaDB, databaseId)
 	if err != nil {
-		c.AbortWithStatusJSON(401, gin.H{"message": err})
-	}
-
-	if key == "" {
-		c.AbortWithStatusJSON(400, gin.H{"message": fmt.Sprintf("No api key found for database %s", dbName)})
-		return
-	}
-
-	err = storage.DeleteAPIKey(c.Request.Context(), h.MetaDB, key)
-	if err != nil {
-		c.AbortWithStatusJSON(400, err)
+		if errors.Is(err, storage.ErrAPIKeyNotFound) {
+			c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "API key not found"})
+		} else {
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to revoke API key"})
+		}
 		return
 	}
 

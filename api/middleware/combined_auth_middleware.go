@@ -59,34 +59,17 @@ func CombinedAuthMiddleware(db *sql.DB, cfg *config.Config) gin.HandlerFunc {
 				return
 			}
 
-			// Find database ID from the API key
-			apiKeyQuery := `SELECT api_database_id, api_owner_id FROM api_keys WHERE key = ?` //nolint:gosec // G101 false positive - not credentials
-			row := db.QueryRow(apiKeyQuery, credentials)
-
-			err := row.Scan(&databaseId, &userId)
+			owner, id, err := storage.AuthenticateAPIKey(c.Request.Context(), db, credentials)
 			if err != nil {
-				if errors.Is(err, sql.ErrNoRows) {
-					_ = c.Error(fmt.Errorf("%w: invalid API key", auth.ErrTokenMalformed))
-					c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid API key"})
+				if !errors.Is(err, storage.ErrAPIKeyNotFound) {
+					customLog.Warnf("API key lookup failed: %v", err)
+					c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Authentication is unavailable"})
 					return
 				}
-				customLog.Warnf("error scanning databaseId: %v", err)
-				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid API key format"})
-				return
-			}
-
-			apiKey, err := storage.FindAPIKeyByDatabaseId(c.Request.Context(), db, databaseId.(int64))
-			if err != nil {
-				customLog.Warnf("CombinedAuthMiddleware: DB error looking up ApiKey for database ID '%d': %v", databaseId.(int64), err)
-				_ = c.Error(fmt.Errorf("internal error during auth: %w", err))
-				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid API key format"})
-				return
-			}
-			if apiKey == "" {
-				_ = c.Error(auth.ErrUnauthorized)
 				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid API key"})
 				return
 			}
+			userId, databaseId = owner, id
 
 			isApiKeyAuth = true
 			c.Set("isApiKey", isApiKeyAuth)
@@ -118,8 +101,21 @@ func CombinedAuthMiddleware(db *sql.DB, cfg *config.Config) gin.HandlerFunc {
 			defaultErr := fmt.Errorf("%w: unsupported scheme '%s'", auth.ErrTokenMalformed, parts[0])
 			customLog.Warnf("CombinedAuthMiddleware: Authentication failed (Scheme: %s): %v", scheme, defaultErr)
 			_ = c.Error(defaultErr)
-			c.Abort()
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Unsupported authentication scheme"})
 			return
+		}
+
+		if isApiKeyAuth && c.FullPath() != "/api/v1/health" {
+			dbName := c.Param("db_name")
+			if dbName == "" || (c.Request.Method == http.MethodDelete && c.FullPath() == "/api/v1/databases/:db_name") {
+				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "API keys only allow scoped database data operations"})
+				return
+			}
+			targetID, err := storage.FindDatabaseIDByNameAndUser(c.Request.Context(), db, userId, dbName)
+			if err != nil || targetID != databaseId.(int64) {
+				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "API key is not valid for this database"})
+				return
+			}
 		}
 
 		// --- Authentication Success ---

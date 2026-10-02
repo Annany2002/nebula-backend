@@ -8,19 +8,20 @@ type UserMetadata struct {
 	UserId       string    `json:"userId"`
 	Username     string    `json:"username"`
 	Email        string    `json:"email"`
-	PasswordHash string    `json:"password"`
+	PasswordHash string    `json:"-"`
 	CreatedAt    time.Time `json:"createdAt"`
 }
 
 // DatabaseMetadata define the structure for user's databases
 type DatabaseMetadata struct {
-	DatabaseID int64     `json:"databaseId"`
-	UserID     string    `json:"userId"`
-	DBName     string    `json:"dbName"`
-	FilePath   string    `json:"filePath"`
-	CreatedAt  time.Time `json:"createdAt"`
-	Tables     int64     `json:"tables"`
-	APIKey     string    `json:"apiKey"`
+	DatabaseID   int64     `json:"databaseId"`
+	UserID       string    `json:"userId"`
+	DBName       string    `json:"dbName"`
+	FilePath     string    `json:"filePath"`
+	CreatedAt    time.Time `json:"createdAt"`
+	Tables       int64     `json:"tables"`
+	APIKeyPrefix string    `json:"apiKeyPrefix,omitempty"`
+	APIKey       string    `json:"apiKey,omitempty"`
 }
 
 // ColumnInfo represents the information for a single column.
@@ -72,7 +73,8 @@ type DatabaseDetailMetadata struct {
 	TotalRecords int64     `json:"totalRecords"`
 	SizeBytes    int64     `json:"sizeBytes"`
 	SizeDisplay  string    `json:"sizeDisplay"`
-	APIKey       string    `json:"apiKey"`
+	APIKeyPrefix string    `json:"apiKeyPrefix,omitempty"`
+	APIKey       string    `json:"apiKey,omitempty"`
 }
 
 // ServiceMetricBucket represents hourly or aggregate metric for a service category
@@ -158,4 +160,10 @@ type TriggerInfo struct {
 type DatabaseObjects struct {
 	Indexes  []IndexInfo   `json:"indexes"`
 	Triggers []TriggerInfo `json:"triggers"`
+}
+
+// APIKeyMetadata describes a credential without disclosing its secret.
+type APIKeyMetadata struct {
+	KeyPrefix string    `json:"key_prefix"`
+	CreatedAt time.Time `json:"created_at"`
 }

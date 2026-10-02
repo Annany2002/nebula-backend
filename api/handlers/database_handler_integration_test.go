@@ -123,7 +123,8 @@ func TestDatabaseStudioEndpoints(t *testing.T) {
 	assert.Equal(t, int64(1), dbDetailRes.Database.Tables)
 	assert.Equal(t, int64(1), dbDetailRes.Database.TotalRecords)
 	assert.NotEmpty(t, dbDetailRes.Database.SizeDisplay)
-	assert.NotEmpty(t, dbDetailRes.Database.APIKey)
+	assert.Empty(t, dbDetailRes.Database.APIKey)
+	assert.NotEmpty(t, dbDetailRes.Database.APIKeyPrefix)
 
 	// 8. Test POST /api/v1/databases/demodb/sql (ExecuteSQL)
 	// 8a. SELECT query

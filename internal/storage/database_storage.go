@@ -91,6 +91,7 @@ func ConnectMetadataDB(cfg *config.Config) (*sql.DB, error) {
 		api_owner_id TEXT NOT NULL,
 		api_database_id INTEGER UNIQUE NOT NULL,
 		key TEXT UNIQUE NOT NULL,
+		key_prefix TEXT NOT NULL DEFAULT '',
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 		FOREIGN KEY (api_owner_id) REFERENCES users(user_id) ON DELETE CASCADE,
 		FOREIGN KEY (api_database_id) REFERENCES databases(database_id) ON DELETE CASCADE
@@ -101,6 +102,10 @@ func ConnectMetadataDB(cfg *config.Config) (*sql.DB, error) {
 		return nil, fmt.Errorf("failed to ensure api_keys table: %w", err)
 	}
 
+	if err := migrateAPIKeys(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("migrate API keys: %w", err)
+	}
 	customLog.Println("Storage: API Keys table ensured.")
 
 	// Ensure 'database_telemetry' table ---
