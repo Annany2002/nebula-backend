@@ -301,7 +301,7 @@ func (h *RecordHandler) GetRecord(c *gin.Context) {
 		_ = c.Error(err)
 		return
 	}
-	recordID, err := storage.ParseRecordID(primaryKey, c.Param("record_id"))
+	recordID, err := storage.ParseRecordID(primaryKey.Type, c.Param("record_id"))
 	if err != nil {
 		_ = c.Error(err)
 		return
@@ -347,7 +347,7 @@ func (h *RecordHandler) UpdateRecord(c *gin.Context) {
 		_ = c.Error(err)
 		return
 	}
-	recordID, err := storage.ParseRecordID(primaryKey, c.Param("record_id"))
+	recordID, err := storage.ParseRecordID(primaryKey.Type, c.Param("record_id"))
 	if err != nil {
 		_ = c.Error(err)
 		return
@@ -510,7 +510,7 @@ func (h *RecordHandler) DeleteRecord(c *gin.Context) {
 		_ = c.Error(err)
 		return
 	}
-	recordID, err := storage.ParseRecordID(primaryKey, c.Param("record_id"))
+	recordID, err := storage.ParseRecordID(primaryKey.Type, c.Param("record_id"))
 	if err != nil {
 		_ = c.Error(err)
 		return

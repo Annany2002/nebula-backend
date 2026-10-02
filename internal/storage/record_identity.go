@@ -43,8 +43,8 @@ func RecordPrimaryKey(ctx context.Context, db *sql.DB, table string) (domain.Col
 	return primaryKey, nil
 }
 
-func ParseRecordID(key domain.ColumnInfo, value string) (any, error) {
-	columnType := strings.ToUpper(key.Type)
+func ParseRecordID(columnType, value string) (any, error) {
+	columnType = strings.ToUpper(columnType)
 	if strings.Contains(columnType, "INT") {
 		number, err := strconv.ParseInt(value, 10, 64)
 		if err != nil {
@@ -52,7 +52,7 @@ func ParseRecordID(key domain.ColumnInfo, value string) (any, error) {
 		}
 		return number, nil
 	}
-	if strings.Contains(columnType, "REAL") || strings.Contains(columnType, "FLOA") || strings.Contains(columnType, "DOUB") {
+	if strings.Contains(columnType, "REAL") || strings.Contains(columnType, "FLOA") || strings.Contains(columnType, "DOUB") { //nolint:misspell // DOUB is SQLite's REAL affinity marker.
 		number, err := strconv.ParseFloat(value, 64)
 		if err != nil || math.IsNaN(number) || math.IsInf(number, 0) {
 			return nil, ErrInvalidRecordID

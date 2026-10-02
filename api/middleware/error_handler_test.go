@@ -28,7 +28,7 @@ func TestErrorHandlerMapsWrappedClientErrors(t *testing.T) {
 			router.Use(ErrorHandler())
 			router.GET("/fixture", func(c *gin.Context) { _ = c.Error(fmt.Errorf("request rejected: %w", tc.err)) })
 			out := httptest.NewRecorder()
-			router.ServeHTTP(out, httptest.NewRequest("GET", "/fixture", nil))
+			router.ServeHTTP(out, httptest.NewRequest("GET", "/fixture", http.NoBody))
 			require.Equal(t, tc.status, out.Code, out.Body.String())
 		})
 	}

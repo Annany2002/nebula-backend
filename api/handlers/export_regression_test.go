@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/Annany2002/nebula-backend/internal/storage"
 )
 
 func TestSQLiteDownloadContainsCommittedWALData(t *testing.T) {
@@ -20,7 +22,7 @@ func TestSQLiteDownloadContainsCommittedWALData(t *testing.T) {
 	out := f.request("GET", "/api/v1/databases/alpha/export/sqlite", "Bearer "+f.token, "")
 	require.Equal(t, http.StatusOK, out.Code)
 	snapshot := filepath.Join(t.TempDir(), "snapshot.db")
-	require.NoError(t, os.WriteFile(snapshot, out.Body.Bytes(), 0600))
+	require.NoError(t, os.WriteFile(snapshot, out.Body.Bytes(), 0o600))
 	restored, err := sql.Open("sqlite3", snapshot)
 	require.NoError(t, err)
 	defer restored.Close()
@@ -30,6 +32,30 @@ func TestSQLiteDownloadContainsCommittedWALData(t *testing.T) {
 	var integrity string
 	require.NoError(t, restored.QueryRow("PRAGMA integrity_check").Scan(&integrity))
 	require.Equal(t, "ok", integrity)
+}
+
+func TestSQLExportQuotesSchemaIdentifiers(t *testing.T) {
+	f := newBackendFixture(t)
+	_, db := f.database(t, "alpha")
+	table := storage.QuoteIdentifier(`payload"; DROP TABLE items;--`)
+	column := storage.QuoteIdentifier(`field"name`)
+	_, err := db.Exec("CREATE TABLE " + table + " (" + column + " TEXT)")
+	require.NoError(t, err)
+	_, err = db.Exec("INSERT INTO "+table+" ("+column+") VALUES (?)", "quoted value")
+	require.NoError(t, err)
+	dump, err := storage.ExportDatabaseSQL(t.Context(), db)
+	require.NoError(t, err)
+	restored, err := sql.Open("sqlite3", filepath.Join(t.TempDir(), "quoted.db"))
+	require.NoError(t, err)
+	defer restored.Close()
+	_, err = restored.Exec(dump)
+	require.NoError(t, err)
+	var value string
+	require.NoError(t, restored.QueryRow("SELECT "+column+" FROM "+table).Scan(&value))
+	require.Equal(t, "quoted value", value)
+	var count int
+	require.NoError(t, restored.QueryRow("SELECT COUNT(*) FROM items").Scan(&count))
+	require.Equal(t, 1, count)
 }
 
 func TestSQLExportCanRestoreSQLiteTypesAndViews(t *testing.T) {

@@ -3,6 +3,9 @@
 
 .PHONY: help build run test lint fmt clean dev install-tools
 
+# Match the module's Go version so the v1 linter can read compiled package data.
+LINT_GO_TOOLCHAIN := go$(shell sed -n 's/^go //p' go.mod)
+
 # Default target
 help:
 	@echo "Available commands:"
@@ -42,11 +45,11 @@ test-coverage:
 
 # Run linter
 lint:
-	golangci-lint run ./...
+	GOTOOLCHAIN=$(LINT_GO_TOOLCHAIN) golangci-lint run ./...
 
 # Run linter with auto-fix
 lint-fix:
-	golangci-lint run --fix ./...
+	GOTOOLCHAIN=$(LINT_GO_TOOLCHAIN) golangci-lint run --fix ./...
 
 # Format code
 fmt:
@@ -64,7 +67,7 @@ clean:
 
 # Install development tools
 install-tools:
-	go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+	GOTOOLCHAIN=$(LINT_GO_TOOLCHAIN) go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.8
 	go install golang.org/x/tools/cmd/goimports@latest
 	go install github.com/air-verse/air@latest
 	@echo "Development tools installed!"

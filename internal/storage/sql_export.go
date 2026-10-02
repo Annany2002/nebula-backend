@@ -101,7 +101,8 @@ func exportTableRows(ctx context.Context, tx *sql.Tx, name string, dump *strings
 		literals[i] = fmt.Sprintf(`CASE WHEN typeof(%[1]s)='text' AND instr(%[1]s,char(0))>0
    THEN 'CAST(X''' || hex(%[1]s) || ''' AS TEXT)' ELSE quote(%[1]s) END`, column)
 	}
-	rows, err = tx.QueryContext(ctx, "SELECT "+strings.Join(literals, ",")+" FROM "+QuoteIdentifier(name))
+	// Schema identifiers are double-quoted; literals contain only fixed SQL and quoted columns.
+	rows, err = tx.QueryContext(ctx, "SELECT "+strings.Join(literals, ",")+" FROM "+QuoteIdentifier(name)) //nolint:gosec // Identifiers cannot be bound as parameters and are escaped with QuoteIdentifier.
 	if err != nil {
 		return err
 	}
