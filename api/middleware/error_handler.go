@@ -36,7 +36,13 @@ func ErrorHandler() gin.HandlerFunc {
 			statusCode = http.StatusNotFound
 			userMessage = err.Error()
 			// *** NEW: Check for Invalid Credentials ***
-		} else if errors.Is(err, storage.ErrInvalidCredentials) {
+		} else if errors.Is(err, auth.ErrForbidden) {
+			statusCode = http.StatusForbidden
+			userMessage = "Access to this resource is forbidden."
+		} else if errors.Is(err, auth.ErrBadRequest) || errors.Is(err, storage.ErrInvalidSortColumn) || errors.Is(err, storage.ErrInvalidFieldColumn) {
+			statusCode = http.StatusBadRequest
+			userMessage = err.Error()
+		} else if errors.Is(err, storage.ErrInvalidCredentials) || errors.Is(err, auth.ErrUnauthorized) {
 			statusCode = http.StatusUnauthorized       // Map to 401
 			userMessage = "Invalid email or password." // Generic message
 			// *** END NEW ***
@@ -61,7 +67,7 @@ func ErrorHandler() gin.HandlerFunc {
 			for _, fe := range validationErrs {
 				customLog.Warnf("Validation Error: Field %s failed on %s", fe.Field(), fe.Tag())
 			}
-		} else if errors.Is(err, storage.ErrColumnNotFound) ||
+		} else if errors.Is(err, storage.ErrUnsupportedPrimaryKey) || errors.Is(err, storage.ErrInvalidRecordID) || errors.Is(err, storage.ErrColumnNotFound) ||
 			errors.Is(err, storage.ErrTypeMismatch) ||
 			errors.Is(err, storage.ErrInvalidFilterValue) { // Include filter value error
 			statusCode = http.StatusBadRequest

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/joho/godotenv"
@@ -37,13 +38,21 @@ func LoadConfig() (*Config, error) {
 	}
 
 	// Read values from environment variables, providing defaults where appropriate
-	port := getEnv("SERVER_PORT", ":8080")                 // Default to :8080
+	defaultPort := "8080"
+	if os.Getenv("APP_ENV") == "production" {
+		defaultPort = "8085"
+	}
+	port := strings.TrimPrefix(getEnv("SERVER_PORT", defaultPort), ":")
 	jwtSecret := getEnv("JWT_SECRET", "")                  // No sensible default for secret!
 	jwtExpHoursStr := getEnv("JWT_EXPIRATION_HOURS", "24") // Default to 24 hours
 	dbDir := getEnv("DATABASE_DIRECTORY", "data")
 	dbFile := getEnv("DATABASE_DIRECTORY_FILE", "metadata.db")
 
 	// --- Validation and Parsing ---
+	portNumber, err := strconv.Atoi(port)
+	if err != nil || portNumber < 1 || portNumber > 65535 {
+		return nil, errors.New("SERVER_PORT must be a port number between 1 and 65535")
+	}
 	// Critical: Ensure JWT Secret is set
 	if jwtSecret == "" {
 		return nil, errors.New("JWT_SECRET environment variable must be set")
@@ -74,14 +83,9 @@ func LoadConfig() (*Config, error) {
 }
 
 // getEnv reads an environment variable or returns a default value.
-// It also checks for required critical variables like JWT_SECRET.
 func getEnv(key, fallback string) string {
 	if value, exists := os.LookupEnv(key); exists {
 		return value
-	}
-	// Return the fallback value, but only if it isn't critical.
-	if fallback == "" {
-		customLog.Fatalf("Critical environment variable '%s' is missing and has no fallback.", key)
 	}
 	return fallback
 }

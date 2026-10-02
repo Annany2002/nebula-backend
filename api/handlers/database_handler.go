@@ -2,12 +2,14 @@
 package handlers
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -411,13 +413,16 @@ func (h *DatabaseHandler) GetAPIKey(c *gin.Context) {
 		return
 	}
 
-	api_key, err := storage.FindAPIKeyByDatabaseId(c.Request.Context(), h.MetaDB, databaseID)
+	metadata, err := storage.FindAPIKeyMetadata(c.Request.Context(), h.MetaDB, databaseID)
 	if err != nil {
-		c.JSON(500, gin.H{"error": err})
+		if errors.Is(err, storage.ErrAPIKeyNotFound) {
+			c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "API key not found"})
+		} else {
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve API key metadata"})
+		}
 		return
 	}
-
-	c.JSON(200, gin.H{"key": api_key})
+	c.JSON(http.StatusOK, metadata)
 }
 
 func (h *DatabaseHandler) DeleteAPIKey(c *gin.Context) {
@@ -445,20 +450,13 @@ func (h *DatabaseHandler) DeleteAPIKey(c *gin.Context) {
 		return
 	}
 
-	key, err := storage.FindAPIKeyByDatabaseId(c.Request.Context(), h.MetaDB, databaseId)
-
+	err = storage.DeleteAPIKey(c.Request.Context(), h.MetaDB, databaseId)
 	if err != nil {
-		c.AbortWithStatusJSON(401, gin.H{"message": err})
-	}
-
-	if key == "" {
-		c.AbortWithStatusJSON(400, gin.H{"message": fmt.Sprintf("No api key found for database %s", dbName)})
-		return
-	}
-
-	err = storage.DeleteAPIKey(c.Request.Context(), h.MetaDB, key)
-	if err != nil {
-		c.AbortWithStatusJSON(400, err)
+		if errors.Is(err, storage.ErrAPIKeyNotFound) {
+			c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "API key not found"})
+		} else {
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to revoke API key"})
+		}
 		return
 	}
 
@@ -635,5 +633,25 @@ func (h *DatabaseHandler) DownloadDatabaseFile(c *gin.Context) {
 		return
 	}
 
-	c.FileAttachment(dbFilePath, fmt.Sprintf("%s.db", dbName))
+	snapshotDir, err := os.MkdirTemp("", "nebula-export-")
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to prepare database export"})
+		return
+	}
+	defer os.RemoveAll(snapshotDir) //nolint:errcheck // Temporary export cleanup.
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
+	defer cancel()
+	source, err := storage.ConnectUserDB(ctx, dbFilePath)
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to open database export"})
+		return
+	}
+	defer source.Close() //nolint:errcheck
+	snapshotPath := filepath.Join(snapshotDir, "snapshot.db")
+	if err := storage.CreateDatabaseSnapshot(ctx, source, snapshotPath); err != nil {
+		customLog.Warnf("Database snapshot failed: %v", err)
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to snapshot database"})
+		return
+	}
+	c.FileAttachment(snapshotPath, fmt.Sprintf("%s.db", dbName))
 }

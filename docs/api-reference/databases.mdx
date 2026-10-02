@@ -35,10 +35,8 @@ curl -X POST http://localhost:8080/api/v1/databases \
 <ResponseExample>
 ```json 201 Created
 {
-  "message": "Database created successfully",
-  "database": {
-    "name": "my_app_db"
-  }
+  "message": "Database registered successfully",
+  "db_name": "my_app_db"
 }
 ```
 
@@ -69,10 +67,21 @@ curl http://localhost:8080/api/v1/databases \
 {
   "databases": [
     {
-      "name": "my_app_db"
+      "databaseId": 1,
+      "userId": "owner-id",
+      "dbName": "my_app_db",
+      "filePath": "data/owner-id/my_app_db.db",
+      "createdAt": "2026-10-02T12:00:00Z",
+      "tables": 0,
+      "apiKeyPrefix": "neb_live_abc123de..."
     },
     {
-      "name": "production_db"
+      "databaseId": 2,
+      "userId": "owner-id",
+      "dbName": "production_db",
+      "filePath": "data/owner-id/production_db.db",
+      "createdAt": "2026-10-02T12:00:00Z",
+      "tables": 0
     }
   ]
 }
@@ -99,12 +108,6 @@ curl -X DELETE http://localhost:8080/api/v1/databases/my_app_db \
 </RequestExample>
 
 <ResponseExample>
-```json 200 OK
-{
-  "message": "Database deleted successfully"
-}
-```
-
 ```json 404 Not Found
 {
   "error": "Database not found"
@@ -112,6 +115,19 @@ curl -X DELETE http://localhost:8080/api/v1/databases/my_app_db \
 ```
 </ResponseExample>
 
+Successful deletion returns **204 No Content**. Database list and detail responses include `apiKeyPrefix` only when a key exists; they never include a full API key.
+
 <Warning>
   Deleting a database **permanently removes** all tables, records, and associated API keys. This action cannot be undone.
 </Warning>
+
+## Database Exports
+
+- `GET /api/v1/databases/:db_name/export/sqlite` downloads a consistent standalone `.db` snapshot, including committed data in the WAL.
+- `GET /api/v1/databases/:db_name/export/sql` returns `{ "sql": "..." }`. The dump reads schema and data in one transaction and preserves SQLite text, BLOB, timestamp and NULL values, plus indexes, views and triggers.
+
+Both endpoints accept the owner's JWT or an API key scoped to that database.
+
+## SQL Isolation
+
+`POST /api/v1/databases/:db_name/sql` accepts `{ "query": "..." }` for SQL within the selected database. Tenant connections reject `ATTACH`, `DETACH`, filesystem SQL functions, extension loading and directory/writable-schema pragmas. `VACUUM` and `VACUUM INTO` also use SQLite's attach operation and are unavailable through tenant connections. Rejected SQL returns **400 Bad Request**.

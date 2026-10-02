@@ -49,7 +49,7 @@ type PaginationMeta struct {
 func ConnectUserDB(ctx context.Context, filePath string) (*sql.DB, error) {
 	customLog.Printf("Storage: Opening user DB: %s", filePath)
 	// Ensured foreign keys, WAL mode and busy timeout for better concurrency
-	userDb, err := sql.Open("sqlite3", filePath+"?_foreign_keys=on&_journal_mode=WAL&_busy_timeout=5000")
+	userDb, err := sql.Open("nebula_sqlite3", filePath+"?_foreign_keys=on&_journal_mode=WAL&_busy_timeout=5000")
 	if err != nil {
 		customLog.Warnf("Storage: Failed to open user DB file '%s': %v", filePath, err)
 		return nil, fmt.Errorf("failed to access user database storage: %w", err)
@@ -516,7 +516,7 @@ func ListRecords(ctx context.Context, userDB *sql.DB, tableName string, queryPar
 }
 
 // GetRecord executes SELECT * WHERE id = ? and returns a single map or ErrRecordNotFound.
-func GetRecord(ctx context.Context, userDB *sql.DB, selectSQL string, recordID int64) (map[string]interface{}, error) {
+func GetRecord(ctx context.Context, userDB *sql.DB, selectSQL string, recordID any) (map[string]interface{}, error) {
 	rows, err := userDB.QueryContext(ctx, selectSQL, recordID) // selectSQL assumed safe with placeholder
 	if err != nil {
 		customLog.Warnf("Storage: Failed SELECT by ID: %v\nSQL: %s", err, selectSQL)
@@ -602,7 +602,7 @@ func UpdateRecord(ctx context.Context, userDB *sql.DB, updateSQL string, values 
 }
 
 // DeleteRecord executes a DELETE statement and returns rows affected.
-func DeleteRecord(ctx context.Context, userDB *sql.DB, deleteSQL string, recordID int64) (int64, error) {
+func DeleteRecord(ctx context.Context, userDB *sql.DB, deleteSQL string, recordID any) (int64, error) {
 	result, err := userDB.ExecContext(ctx, deleteSQL, recordID) // deleteSQL assumed safe with placeholder
 	if err != nil {
 		customLog.Warnf("Storage: Failed DELETE: %v\nSQL: %s", err, deleteSQL)
@@ -851,108 +851,4 @@ func GetDatabaseObjects(ctx context.Context, userDB *sql.DB) (*domain.DatabaseOb
 		Indexes:  indexes,
 		Triggers: triggers,
 	}, nil
-}
-
-// ExportDatabaseSQL dumps tables, schemas, and data into SQL statements
-func ExportDatabaseSQL(ctx context.Context, userDB *sql.DB) (string, error) {
-	var sb strings.Builder
-	sb.WriteString("-- Nebula SQLite Database Dump\n")
-	sb.WriteString(fmt.Sprintf("-- Generated: %s\n\n", time.Now().UTC().Format(time.RFC3339)))
-	sb.WriteString("PRAGMA foreign_keys=OFF;\nBEGIN TRANSACTION;\n\n")
-
-	// 1. Tables and Data
-	tableRows, err := userDB.QueryContext(ctx, `
-	SELECT name, sql FROM sqlite_master 
-	WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_nebula_%'
-	ORDER BY name;`)
-	if err != nil {
-		return "", fmt.Errorf("failed reading tables for dump: %w", err)
-	}
-	defer tableRows.Close()
-
-	type tableDump struct {
-		name string
-		sql  string
-	}
-	var tables []tableDump
-	for tableRows.Next() {
-		var td tableDump
-		var sqlStr sql.NullString
-		if err := tableRows.Scan(&td.name, &sqlStr); err == nil && sqlStr.Valid {
-			td.sql = sqlStr.String
-			tables = append(tables, td)
-		}
-	}
-
-	for _, t := range tables {
-		sb.WriteString(fmt.Sprintf("-- Table: %s\n", t.name))
-		sb.WriteString(fmt.Sprintf("%s;\n\n", t.sql))
-
-		// Dump Rows
-		rows, err := userDB.QueryContext(ctx, fmt.Sprintf("SELECT * FROM %s;", t.name))
-		if err == nil {
-			cols, err := rows.Columns()
-			if err == nil && len(cols) > 0 {
-				for rows.Next() {
-					scanArgs := make([]any, len(cols))
-					values := make([]any, len(cols))
-					for i := range values {
-						scanArgs[i] = &values[i]
-					}
-					if err := rows.Scan(scanArgs...); err == nil {
-						valStrs := make([]string, len(cols))
-						for i, v := range values {
-							switch val := v.(type) {
-							case nil:
-								valStrs[i] = "NULL"
-							case string:
-								valStrs[i] = fmt.Sprintf("'%s'", strings.ReplaceAll(val, "'", "''"))
-							case []byte:
-								valStrs[i] = fmt.Sprintf("'%s'", strings.ReplaceAll(string(val), "'", "''"))
-							default:
-								valStrs[i] = fmt.Sprintf("%v", val)
-							}
-						}
-						sb.WriteString(fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s);\n",
-							t.name, strings.Join(cols, ", "), strings.Join(valStrs, ", ")))
-					}
-				}
-			}
-			rows.Close()
-			sb.WriteString("\n")
-		}
-	}
-
-	// 2. Indexes
-	idxRows, err := userDB.QueryContext(ctx, `
-	SELECT sql FROM sqlite_master 
-	WHERE type='index' AND sql IS NOT NULL AND name NOT LIKE 'sqlite_%';`)
-	if err == nil {
-		for idxRows.Next() {
-			var sqlStr string
-			if err := idxRows.Scan(&sqlStr); err == nil && sqlStr != "" {
-				sb.WriteString(fmt.Sprintf("%s;\n", sqlStr))
-			}
-		}
-		idxRows.Close()
-		sb.WriteString("\n")
-	}
-
-	// 3. Triggers
-	trgRows, err := userDB.QueryContext(ctx, `
-	SELECT sql FROM sqlite_master 
-	WHERE type='trigger' AND sql IS NOT NULL;`)
-	if err == nil {
-		for trgRows.Next() {
-			var sqlStr string
-			if err := trgRows.Scan(&sqlStr); err == nil && sqlStr != "" {
-				sb.WriteString(fmt.Sprintf("%s;\n", sqlStr))
-			}
-		}
-		trgRows.Close()
-		sb.WriteString("\n")
-	}
-
-	sb.WriteString("COMMIT;\n")
-	return sb.String(), nil
 }
