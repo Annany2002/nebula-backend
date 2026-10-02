@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"math"
 	"net/http"
-	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -73,6 +72,11 @@ func (h *RecordHandler) CreateRecord(c *gin.Context) {
 		return
 	}
 	defer userDB.Close()
+	primaryKey, err := storage.RecordPrimaryKey(c.Request.Context(), userDB, tableName)
+	if err != nil {
+		_ = c.Error(err)
+		return
+	}
 
 	// Fetch schema for validation
 	columnTypes, err := storage.PragmaTableInfo(c.Request.Context(), userDB, tableName)
@@ -99,6 +103,16 @@ func (h *RecordHandler) CreateRecord(c *gin.Context) {
 		return
 	}
 
+	var suppliedID any
+	for name, value := range recordData {
+		if strings.EqualFold(name, primaryKey.Name) {
+			suppliedID = value
+		}
+	}
+	if suppliedID == nil && !strings.EqualFold(primaryKey.Type, "INTEGER") {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "A value for the primary key is required"})
+		return
+	}
 	// Prepare SQL parts and validate types
 	var columns []string
 	var placeholders []string
@@ -106,9 +120,9 @@ func (h *RecordHandler) CreateRecord(c *gin.Context) {
 
 	for key, val := range recordData {
 		lowerKey := strings.ToLower(key)
-		if !core.IsValidIdentifier(key) || lowerKey == "id" {
+		if !core.IsValidIdentifier(key) {
 			continue
-		} // Skip invalid/id
+		} // Skip invalid identifiers.
 
 		expectedType, exists := columnTypes[lowerKey]
 		if !exists {
@@ -169,7 +183,7 @@ func (h *RecordHandler) CreateRecord(c *gin.Context) {
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-		columns = append(columns, key)
+		columns = append(columns, storage.QuoteIdentifier(key))
 		placeholders = append(placeholders, "?")
 		values = append(values, val)
 	} // End validation loop
@@ -182,7 +196,7 @@ func (h *RecordHandler) CreateRecord(c *gin.Context) {
 
 	// Construct and execute INSERT via storage function
 	insertSQL := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)",
-		tableName, strings.Join(columns, ", "), strings.Join(placeholders, ", "))
+		storage.QuoteIdentifier(tableName), strings.Join(columns, ", "), strings.Join(placeholders, ", "))
 	customLog.Printf("Handler: Executing Create Record SQL for DB '%s': %s", dbFilePath, insertSQL)
 
 	lastID, err := storage.InsertRecord(c.Request.Context(), userDB, insertSQL, values...)
@@ -202,10 +216,14 @@ func (h *RecordHandler) CreateRecord(c *gin.Context) {
 		return
 	}
 
-	customLog.Printf("Handler: Successfully inserted record ID %d into DB '%s', Table '%s'", lastID, dbFilePath, tableName)
+	customLog.Printf("Handler: Successfully inserted record ID %v into DB '%s', Table '%s'", lastID, dbFilePath, tableName)
+	var responseID any = lastID
+	if suppliedID != nil {
+		responseID = suppliedID
+	}
 	c.JSON(http.StatusCreated, gin.H{
 		"message":   "Record created successfully",
-		"record_id": lastID,
+		"record_id": responseID,
 	})
 }
 
@@ -265,14 +283,6 @@ func (h *RecordHandler) ListRecords(c *gin.Context) {
 
 // GetRecord handles retrieving a single record by ID.
 func (h *RecordHandler) GetRecord(c *gin.Context) {
-	recordIDStr := c.Param("record_id")
-	recordID, err := strconv.ParseInt(recordIDStr, 10, 64)
-	if err != nil {
-		_ = c.Error(fmt.Errorf("invalid record_id format: %w", err))
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid record ID format."})
-		return
-	}
-
 	userDB, tableName, dbFilePath, err := h.getUserDBConn(c)
 	if err != nil { /* ... handle getUserDBConn error (400, 404, 500) ... */
 		_ = c.Error(err)
@@ -286,9 +296,19 @@ func (h *RecordHandler) GetRecord(c *gin.Context) {
 		return
 	}
 	defer userDB.Close()
+	primaryKey, err := storage.RecordPrimaryKey(c.Request.Context(), userDB, tableName)
+	if err != nil {
+		_ = c.Error(err)
+		return
+	}
+	recordID, err := storage.ParseRecordID(primaryKey, c.Param("record_id"))
+	if err != nil {
+		_ = c.Error(err)
+		return
+	}
 
-	selectSQL := fmt.Sprintf("SELECT * FROM %s WHERE id = ? LIMIT 1;", tableName)
-	customLog.Printf("Handler: Executing Get Record SQL for DB '%s', ID %d: %s", dbFilePath, recordID, selectSQL)
+	selectSQL := fmt.Sprintf("SELECT * FROM %s WHERE %s = ? LIMIT 1;", storage.QuoteIdentifier(tableName), storage.QuoteIdentifier(primaryKey.Name))
+	customLog.Printf("Handler: Executing Get Record SQL for DB '%s', ID %v: %s", dbFilePath, recordID, selectSQL)
 
 	recordData, err := storage.GetRecord(c.Request.Context(), userDB, selectSQL, recordID)
 	if err != nil {
@@ -303,20 +323,12 @@ func (h *RecordHandler) GetRecord(c *gin.Context) {
 		return
 	}
 
-	customLog.Printf("Handler: Successfully retrieved record ID %d from DB '%s', Table '%s'", recordID, dbFilePath, tableName)
+	customLog.Printf("Handler: Successfully retrieved record ID %v from DB '%s', Table '%s'", recordID, dbFilePath, tableName)
 	c.JSON(http.StatusOK, recordData)
 }
 
 // UpdateRecord handles updating an existing record.
 func (h *RecordHandler) UpdateRecord(c *gin.Context) {
-	recordIDStr := c.Param("record_id")
-	recordID, err := strconv.ParseInt(recordIDStr, 10, 64)
-	if err != nil {
-		_ = c.Error(fmt.Errorf("invalid record_id format: %w", err))
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid record ID format."})
-		return
-	}
-
 	userDB, tableName, dbFilePath, err := h.getUserDBConn(c)
 	if err != nil { /* ... handle getUserDBConn error (400, 404, 500) ... */
 		_ = c.Error(err)
@@ -330,6 +342,16 @@ func (h *RecordHandler) UpdateRecord(c *gin.Context) {
 		return
 	}
 	defer userDB.Close()
+	primaryKey, err := storage.RecordPrimaryKey(c.Request.Context(), userDB, tableName)
+	if err != nil {
+		_ = c.Error(err)
+		return
+	}
+	recordID, err := storage.ParseRecordID(primaryKey, c.Param("record_id"))
+	if err != nil {
+		_ = c.Error(err)
+		return
+	}
 
 	// Fetch schema for validation
 	columnTypes, err := storage.PragmaTableInfo(c.Request.Context(), userDB, tableName)
@@ -362,7 +384,7 @@ func (h *RecordHandler) UpdateRecord(c *gin.Context) {
 
 	for key, val := range updateData {
 		lowerKey := strings.ToLower(key)
-		if !core.IsValidIdentifier(key) || lowerKey == "id" {
+		if !core.IsValidIdentifier(key) || strings.EqualFold(key, primaryKey.Name) {
 			continue
 		} // Skip
 
@@ -421,7 +443,7 @@ func (h *RecordHandler) UpdateRecord(c *gin.Context) {
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-		setClauses = append(setClauses, fmt.Sprintf("%s = ?", key))
+		setClauses = append(setClauses, fmt.Sprintf("%s = ?", storage.QuoteIdentifier(key)))
 		values = append(values, val)
 	} // End validation loop
 
@@ -434,9 +456,9 @@ func (h *RecordHandler) UpdateRecord(c *gin.Context) {
 	values = append(values, recordID) // Add ID for WHERE clause
 
 	// Construct and execute UPDATE via storage function
-	updateSQL := fmt.Sprintf("UPDATE %s SET %s WHERE id = ?",
-		tableName, strings.Join(setClauses, ", "))
-	customLog.Printf("Handler: Executing Update Record SQL for DB '%s', ID %d: %s", dbFilePath, recordID, updateSQL)
+	updateSQL := fmt.Sprintf("UPDATE %s SET %s WHERE %s = ?",
+		storage.QuoteIdentifier(tableName), strings.Join(setClauses, ", "), storage.QuoteIdentifier(primaryKey.Name))
+	customLog.Printf("Handler: Executing Update Record SQL for DB '%s', ID %v: %s", dbFilePath, recordID, updateSQL)
 
 	_, err = storage.UpdateRecord(c.Request.Context(), userDB, updateSQL, values...)
 	if err != nil {
@@ -461,7 +483,7 @@ func (h *RecordHandler) UpdateRecord(c *gin.Context) {
 		return
 	}
 
-	customLog.Printf("Handler: Successfully updated record ID %d in DB '%s', Table '%s'", recordID, dbFilePath, tableName)
+	customLog.Printf("Handler: Successfully updated record ID %v in DB '%s', Table '%s'", recordID, dbFilePath, tableName)
 	c.JSON(http.StatusOK, gin.H{
 		"message":   "Record updated successfully",
 		"record_id": recordID,
@@ -470,14 +492,6 @@ func (h *RecordHandler) UpdateRecord(c *gin.Context) {
 
 // DeleteRecord handles deleting a specific record by ID.
 func (h *RecordHandler) DeleteRecord(c *gin.Context) {
-	recordIDStr := c.Param("record_id")
-	recordID, err := strconv.ParseInt(recordIDStr, 10, 64)
-	if err != nil { /* ... handle invalid ID (400) ... */
-		_ = c.Error(fmt.Errorf("invalid record_id format: %w", err))
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid record ID format."})
-		return
-	}
-
 	userDB, tableName, dbFilePath, err := h.getUserDBConn(c)
 	if err != nil { /* ... handle getUserDBConn error (400, 404, 500) ... */
 		_ = c.Error(err)
@@ -491,10 +505,20 @@ func (h *RecordHandler) DeleteRecord(c *gin.Context) {
 		return
 	}
 	defer userDB.Close()
+	primaryKey, err := storage.RecordPrimaryKey(c.Request.Context(), userDB, tableName)
+	if err != nil {
+		_ = c.Error(err)
+		return
+	}
+	recordID, err := storage.ParseRecordID(primaryKey, c.Param("record_id"))
+	if err != nil {
+		_ = c.Error(err)
+		return
+	}
 
 	// Construct and execute DELETE via storage function
-	deleteSQL := fmt.Sprintf("DELETE FROM %s WHERE id = ?", tableName)
-	customLog.Printf("Handler: Executing Delete Record SQL for DB '%s', ID %d: %s", dbFilePath, recordID, deleteSQL)
+	deleteSQL := fmt.Sprintf("DELETE FROM %s WHERE %s = ?", storage.QuoteIdentifier(tableName), storage.QuoteIdentifier(primaryKey.Name))
+	customLog.Printf("Handler: Executing Delete Record SQL for DB '%s', ID %v: %s", dbFilePath, recordID, deleteSQL)
 
 	_, err = storage.DeleteRecord(c.Request.Context(), userDB, deleteSQL, recordID)
 	if err != nil {
@@ -509,6 +533,6 @@ func (h *RecordHandler) DeleteRecord(c *gin.Context) {
 		return
 	}
 
-	customLog.Printf("Handler: Successfully deleted record ID %d from DB '%s', Table '%s'", recordID, dbFilePath, tableName)
+	customLog.Printf("Handler: Successfully deleted record ID %v from DB '%s', Table '%s'", recordID, dbFilePath, tableName)
 	c.Status(http.StatusNoContent) // Use 204 No Content
 }

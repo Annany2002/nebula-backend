@@ -516,7 +516,7 @@ func ListRecords(ctx context.Context, userDB *sql.DB, tableName string, queryPar
 }
 
 // GetRecord executes SELECT * WHERE id = ? and returns a single map or ErrRecordNotFound.
-func GetRecord(ctx context.Context, userDB *sql.DB, selectSQL string, recordID int64) (map[string]interface{}, error) {
+func GetRecord(ctx context.Context, userDB *sql.DB, selectSQL string, recordID any) (map[string]interface{}, error) {
 	rows, err := userDB.QueryContext(ctx, selectSQL, recordID) // selectSQL assumed safe with placeholder
 	if err != nil {
 		customLog.Warnf("Storage: Failed SELECT by ID: %v\nSQL: %s", err, selectSQL)
@@ -602,7 +602,7 @@ func UpdateRecord(ctx context.Context, userDB *sql.DB, updateSQL string, values 
 }
 
 // DeleteRecord executes a DELETE statement and returns rows affected.
-func DeleteRecord(ctx context.Context, userDB *sql.DB, deleteSQL string, recordID int64) (int64, error) {
+func DeleteRecord(ctx context.Context, userDB *sql.DB, deleteSQL string, recordID any) (int64, error) {
 	result, err := userDB.ExecContext(ctx, deleteSQL, recordID) // deleteSQL assumed safe with placeholder
 	if err != nil {
 		customLog.Warnf("Storage: Failed DELETE: %v\nSQL: %s", err, deleteSQL)
