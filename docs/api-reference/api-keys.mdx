@@ -13,7 +13,7 @@ Generate API keys for programmatic, database-scoped access. API keys provide acc
 
 ## Create API Key
 
-Generate a new API key for a database.
+Generate a new API key for a database. Repeating this request rotates the key and immediately revokes the previous key.
 
 **Endpoint:** `POST /api/v1/account/databases/:db_name/apikey`
 
@@ -33,8 +33,8 @@ curl -X POST http://localhost:8080/api/v1/account/databases/mydb/apikey \
 <ResponseExample>
 ```json 201 Created
 {
-  "api_key": "nbla_abc123def456ghi789jkl012mno345pqr678stu901",
-  "message": "API key created. Store it securely - it won't be shown again!"
+  "api_key": "neb_live_abc123def456ghi789jkl012mno345pqr678stu901",
+  "message": "API Key generated successfully. Store it securely - it will not be shown again."
 }
 ```
 
@@ -46,14 +46,14 @@ curl -X POST http://localhost:8080/api/v1/account/databases/mydb/apikey \
 </ResponseExample>
 
 <Warning>
-  The API key is only shown **once** when created. Store it securely! If lost, you'll need to delete and create a new one.
+  The API key is only shown **once** when created. Store it securely! If lost, repeat the POST request to rotate it. Only a SHA-256 digest and display prefix are persisted.
 </Warning>
 
 ---
 
 ## Get API Key Info
 
-Check if an API key exists for a database.
+Retrieve the display prefix and creation time. This endpoint never returns the full key.
 
 **Endpoint:** `GET /api/v1/account/databases/:db_name/apikey`
 
@@ -69,14 +69,14 @@ curl http://localhost:8080/api/v1/account/databases/mydb/apikey \
 <ResponseExample>
 ```json 200 OK
 {
-  "exists": true,
-  "prefix": "nbla_abc123"
+  "key_prefix": "neb_live_abc123de...",
+  "created_at": "2026-10-02T12:00:00Z"
 }
 ```
 
-```json 200 OK (No key)
+```json 404 Not Found (No key)
 {
-  "exists": false
+  "error": "API key not found"
 }
 ```
 </ResponseExample>
@@ -98,13 +98,7 @@ curl -X DELETE http://localhost:8080/api/v1/account/databases/mydb/apikey \
 ```
 </RequestExample>
 
-<ResponseExample>
-```json 200 OK
-{
-  "message": "API key deleted successfully"
-}
-```
-</ResponseExample>
+Returns **204 No Content** on success, or **404 Not Found** when no key exists.
 
 ---
 
@@ -114,9 +108,9 @@ Use the API key for database operations:
 
 ```bash
 curl http://localhost:8080/api/v1/databases/mydb/tables \
-  -H "Authorization: ApiKey nbla_abc123def456ghi789jkl012mno345pqr678stu901"
+  -H "Authorization: ApiKey neb_live_abc123def456ghi789jkl012mno345pqr678stu901"
 ```
 
 <Note>
-  API keys are **database-scoped**. They can only access the specific database they were created for.
+  API keys are **database-scoped** across records, tables, SQL, metadata, diagrams, analytics, objects and exports. Requests targeting another database return **403 Forbidden**. Database listing, creation, deletion and user/account operations require a JWT. Existing `neb_` credentials remain valid after automatic hash migration at startup.
 </Note>

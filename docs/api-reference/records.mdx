@@ -7,6 +7,8 @@ description: "CRUD operations on table records"
 
 Create, read, update, and delete records in your tables.
 
+Record creation and single-record routes use the table's actual primary key column. They support a single integer or text key, including keys renamed or defined through SQL. Tables without a primary key or with a composite key return **400 Bad Request** for these operations; listing remains available. The schema creation API continues to add an `id INTEGER PRIMARY KEY` column automatically.
+
 ## Create Record
 
 Insert a new record into a table.
@@ -22,6 +24,8 @@ Insert a new record into a table.
 </ParamField>
 
 The request body should contain field-value pairs matching the table schema.
+
+Supply the primary key value for text keys. For an ordinary `INTEGER PRIMARY KEY`, omit it to let SQLite assign the value. The response's `record_id` contains the supplied key or the generated integer ID.
 
 <RequestExample>
 ```bash cURL
@@ -40,8 +44,8 @@ curl -X POST http://localhost:8080/api/v1/databases/mydb/tables/users/records \
 <ResponseExample>
 ```json 201 Created
 {
-  "message": "Record created",
-  "id": 1
+  "message": "Record created successfully",
+  "record_id": 1
 }
 ```
 
@@ -157,7 +161,7 @@ Retrieve a single record by ID.
 
 **Endpoint:** `GET /api/v1/databases/:db_name/tables/:table_name/records/:record_id`
 
-<ParamField path="record_id" type="integer" required>
+<ParamField path="record_id" type="integer | string" required>
   Record ID
 </ParamField>
 
@@ -194,7 +198,7 @@ Update an existing record.
 
 **Endpoint:** `PUT /api/v1/databases/:db_name/tables/:table_name/records/:record_id`
 
-<ParamField path="record_id" type="integer" required>
+<ParamField path="record_id" type="integer | string" required>
   Record ID to update
 </ParamField>
 
@@ -224,7 +228,7 @@ curl -X PUT http://localhost:8080/api/v1/databases/mydb/tables/users/records/1 \
 </ResponseExample>
 
 <Note>
-  You only need to include fields you want to update. Unspecified fields remain unchanged.
+  You only need to include fields you want to update. Unspecified fields remain unchanged. The primary key cannot be changed through this endpoint.
 </Note>
 
 ---
@@ -235,7 +239,7 @@ Remove a record from a table.
 
 **Endpoint:** `DELETE /api/v1/databases/:db_name/tables/:table_name/records/:record_id`
 
-<ParamField path="record_id" type="integer" required>
+<ParamField path="record_id" type="integer | string" required>
   Record ID to delete
 </ParamField>
 
@@ -247,15 +251,11 @@ curl -X DELETE http://localhost:8080/api/v1/databases/mydb/tables/users/records/
 </RequestExample>
 
 <ResponseExample>
-```json 200 OK
-{
-  "message": "Record deleted successfully"
-}
-```
-
 ```json 404 Not Found
 {
   "error": "Record not found"
 }
 ```
 </ResponseExample>
+
+Successful deletion returns **204 No Content** with an empty body.
