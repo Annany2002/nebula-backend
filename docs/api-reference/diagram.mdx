@@ -1,0 +1,41 @@
+---
+title: Schema diagram
+description: "Inspect tables, columns, and foreign-key relationships."
+---
+
+**Endpoint:** `GET /api/v1/databases/:db_name/diagram`
+
+Authenticate with the owner's JWT or an API key scoped to this database.
+
+```bash
+curl http://localhost:8080/api/v1/databases/mydb/diagram \
+  -H "Authorization: ApiKey <your-database-key>"
+```
+
+## Response
+
+The response contains `tables`, `totalTables`, and `totalForeignKeys`. Each table contains:
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `name` | string | Table name |
+| `columns` | array | SQLite column metadata: `cid`, `name`, `type`, `notnull`, `dflt_value`, `pk` |
+| `foreignKeys` | array | Foreign-key metadata |
+| `rowCount` | integer | Number of rows in the table |
+| `sql` | string | Original table creation SQL |
+
+Each foreign key contains `id`, `seq`, `table` (target table), `from` (source column), `to` (target column), `onUpdate`, and `onDelete`.
+
+`pk` and `notnull` are numeric SQLite flags; `cid` is serialized as a string. This endpoint returns schema data for building a diagram, rather than an image or saved canvas layout.
+
+An empty database returns:
+
+```json
+{
+  "tables": [],
+  "totalTables": 0,
+  "totalForeignKeys": 0
+}
+```
+
+An unknown database returns **404**. Schema inspection failures return **500**.

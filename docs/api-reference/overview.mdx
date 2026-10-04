@@ -5,7 +5,7 @@ description: "Nebula REST API reference"
 
 # API Overview
 
-Nebula provides a RESTful API for managing databases, schemas, tables, and records.
+Nebula provides a REST API for accounts, database management, schemas, records, SQL execution, inspection, and exports. All example requests use the local backend; replace its origin with your own deployment URL.
 
 ## Base URL
 
@@ -19,7 +19,7 @@ Nebula supports two authentication methods:
 
 <CardGroup cols={2}>
   <Card title="JWT Bearer Token" icon="key">
-    For user management operations
+    For account operations and database lifecycle management
     ```
     Authorization: Bearer <token>
     ```
@@ -56,7 +56,17 @@ Nebula supports two authentication methods:
 |--------|----------|-------------|
 | GET | `/api/v1/databases` | List databases |
 | POST | `/api/v1/databases` | Create database |
+| GET | `/api/v1/databases/:db_name` | Get database details |
 | DELETE | `/api/v1/databases/:db_name` | Delete database |
+
+Database listing, creation, and deletion require a JWT. Database details accept a JWT or a key scoped to that database.
+
+### Account Profile (JWT only)
+
+| Method | Endpoint | Description |
+| --- | --- | --- |
+| GET | `/api/v1/account/user/me` | Get current profile |
+| PUT | `/api/v1/account/user/me` | Update current profile |
 
 ### API Key Management (JWT only)
 
@@ -74,6 +84,7 @@ Nebula supports two authentication methods:
 | GET | `/api/v1/databases/:db_name/tables/:table_name/schema` | Get schema |
 | GET | `/api/v1/databases/:db_name/tables` | List tables |
 | POST | `/api/v1/databases/:db_name/tables` | Create table |
+| POST | `/api/v1/databases/:db_name/tables/:table_name/alter` | Alter table |
 | DELETE | `/api/v1/databases/:db_name/tables/:table_name` | Delete table |
 
 ### Records (CRUD)
@@ -86,13 +97,26 @@ Nebula supports two authentication methods:
 | PUT | `/api/v1/databases/:db_name/tables/:table_name/records/:record_id` | Update record |
 | DELETE | `/api/v1/databases/:db_name/tables/:table_name/records/:record_id` | Delete record |
 
+### SQL, Inspection, and Exports
+
+These endpoints accept a JWT or a key scoped to the selected database.
+
+| Method | Endpoint | Reference |
+| --- | --- | --- |
+| POST | `/api/v1/databases/:db_name/sql` | [SQL execution](/api-reference/sql) |
+| GET | `/api/v1/databases/:db_name/analytics` | [Analytics](/api-reference/analytics) |
+| GET | `/api/v1/databases/:db_name/diagram` | [Schema diagram](/api-reference/diagram) |
+| GET | `/api/v1/databases/:db_name/objects` | [Database objects](/api-reference/objects) |
+| GET | `/api/v1/databases/:db_name/export/sql` | [SQL dump](/api-reference/exports) |
+| GET | `/api/v1/databases/:db_name/export/sqlite` | [SQLite snapshot](/api-reference/exports) |
+
 ## Rate Limiting
 
 API requests are rate-limited by IP address. If you exceed the limit, you'll receive a `429 Too Many Requests` response.
 
 ## Error Responses
 
-All errors return JSON in this format:
+Most API errors return JSON in this format:
 
 ```json
 {

@@ -1,11 +1,11 @@
 ---
 title: Tables
-description: "Create, list, and delete tables"
+description: "Create, inspect, alter, and delete tables"
 ---
 
 # Table Management
 
-Create, list, and delete tables in your databases.
+Create, inspect, alter, and delete tables. Authenticate with the owner's JWT or an API key scoped to the selected database.
 
 ## Create Table
 
@@ -21,20 +21,23 @@ Create a new table within a database.
   Name for the new table (alphanumeric and underscores only)
 </ParamField>
 
-<ParamField body="schema" type="array" required>
+<ParamField body="schema" type="array">
   Array of column definitions (alternative to `columns`)
 </ParamField>
 
 <ParamField body="columns" type="array">
-  Array of column definitions (alternative to `schema`)
+  Array of column definitions (alternative to `schema`). At least one of `columns` or `schema` must be nonempty. If both are provided, `columns` takes precedence.
 </ParamField>
 
 ### Column Definition
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `name` | string | Column name (cannot be `id`) |
-| `type` | string | SQLite type: `TEXT`, `INTEGER`, `REAL`, `BLOB` |
+| `name` | string | Column name (cannot be `id` or `created_at`) |
+| `type` | string | SQLite type: `TEXT`, `INTEGER`, `REAL`, `BLOB`, `BOOLEAN`, `DATETIME`, `NUMERIC` |
+| `foreign_key` | object | Optional `target_table`, `target_column`, `on_delete`, `on_update` |
+
+Foreign keys may also be supplied in the top-level `foreign_keys` array with `column`, `target_table`, `target_column`, and optional `on_delete`/`on_update`. Actions accept `CASCADE`, `SET NULL`, `SET DEFAULT`, `RESTRICT`, or `NO ACTION`.
 
 <RequestExample>
 ```bash cURL
@@ -82,7 +85,7 @@ curl -X POST http://localhost:8080/api/v1/databases/mydb/tables \
 
 ## List Tables
 
-Get all tables in a database.
+Get table metadata, column information, and row counts. `rootpage` and column `cid` are serialized as strings. `createdAt` comes from Nebula's table metadata; tables created outside its schema API are backfilled when first listed.
 
 **Endpoint:** `GET /api/v1/databases/:db_name/tables`
 
@@ -101,9 +104,20 @@ curl http://localhost:8080/api/v1/databases/mydb/tables \
 ```json 200 OK
 {
   "tables": [
-    "users",
-    "products",
-    "orders"
+    {
+      "type": "table",
+      "name": "products",
+      "tbl_name": "products",
+      "rootpage": "2",
+      "sql": "CREATE TABLE products (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)",
+      "createdAt": "2026-10-04T12:00:00Z",
+      "rowCount": 1,
+      "columns": [
+        {"cid":"0","name":"id","type":"INTEGER","notnull":0,"dflt_value":null,"pk":1},
+        {"cid":"1","name":"name","type":"TEXT","notnull":0,"dflt_value":null,"pk":0},
+        {"cid":"2","name":"created_at","type":"TIMESTAMP","notnull":0,"dflt_value":"CURRENT_TIMESTAMP","pk":0}
+      ]
+    }
   ]
 }
 ```
@@ -138,20 +152,32 @@ curl -X DELETE http://localhost:8080/api/v1/databases/mydb/tables/users \
 ```
 </RequestExample>
 
-<ResponseExample>
-```json 200 OK
-{
-  "message": "Table deleted successfully"
-}
-```
-
-```json 404 Not Found
-{
-  "error": "Table not found"
-}
-```
-</ResponseExample>
+Successful deletion returns **204 No Content**. Dropping an absent table also succeeds because the server uses `DROP TABLE IF EXISTS`.
 
 <Warning>
   Deleting a table **permanently removes** all records in that table. This action cannot be undone.
 </Warning>
+
+## Alter Table
+
+**Endpoint:** `POST /api/v1/databases/:db_name/tables/:table_name/alter`
+
+Supply a single `action` or a nonempty `operations` array. When `operations` is present and nonempty, it takes precedence over the single-action fields. Operations run in order within a transaction.
+
+| Action | Required fields |
+| --- | --- |
+| `add_column` | `column` with `name` and `type`; optional `not_null`, `default_value`, `foreign_key` |
+| `drop_column` | `column_name` |
+| `rename_column` | `old_name`, `new_name` |
+| `rename_table` | `new_table_name` |
+
+`default_value` is a string containing a SQLite expression, such as `"0"` or `"'draft'"`, rather than an arbitrary JSON value. A `not_null` added column requires a default. Reserved `id` and `created_at` names cannot be added; `created_at` cannot be renamed or dropped. SQLite also enforces constraints on dropping primary-key and referenced columns.
+
+```bash
+curl -X POST http://localhost:8080/api/v1/databases/mydb/tables/products/alter \
+  -H "Authorization: ApiKey <your-database-key>" \
+  -H "Content-Type: application/json" \
+  -d '{"action":"add_column","column":{"name":"stock","type":"INTEGER","not_null":true,"default_value":"0"}}'
+```
+
+A successful response returns **200** with `message`, `db_name`, `table_name` (the final name), `statements` (the generated SQL array), and `schema` (updated entries with `name`, `type`, and boolean `pk`, as returned by the schema endpoint). Invalid operations return **400**; SQLite execution failures currently return **500**. Dropping a column permanently removes its data.

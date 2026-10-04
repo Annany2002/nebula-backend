@@ -8,7 +8,7 @@ description: "Create and manage databases"
 Create, list, and delete databases. Each database is an isolated SQLite file.
 
 <Note>
-  Database management requires **user-scoped authentication** (JWT Bearer token). API keys cannot create or delete databases.
+  Database management requires **user-scoped authentication** (JWT Bearer token). API keys cannot list, create, or delete databases. Details and exports also accept a key scoped to the selected database.
 </Note>
 
 ## Create Database
@@ -42,7 +42,7 @@ curl -X POST http://localhost:8080/api/v1/databases \
 
 ```json 409 Conflict
 {
-  "error": "Database already exists"
+  "error": "A database with this name already exists."
 }
 ```
 </ResponseExample>
@@ -90,6 +90,17 @@ curl http://localhost:8080/api/v1/databases \
 
 ---
 
+## Get Database Details
+
+**Endpoint:** `GET /api/v1/databases/:db_name`
+
+```bash
+curl http://localhost:8080/api/v1/databases/my_app_db \
+  -H "Authorization: Bearer <your-jwt-token>"
+```
+
+The response wraps metadata in a `database` object. Fields include `databaseId`, `userId`, `dbName`, `filePath`, `createdAt`, `tables`, `totalRecords`, `sizeBytes`, and `sizeDisplay`. `apiKeyPrefix` is present only when a key exists; the full secret is never returned. An unknown database returns **404**.
+
 ## Delete Database
 
 Delete a database and all its data.
@@ -121,13 +132,6 @@ Successful deletion returns **204 No Content**. Database list and detail respons
   Deleting a database **permanently removes** all tables, records, and associated API keys. This action cannot be undone.
 </Warning>
 
-## Database Exports
+## Query and Export
 
-- `GET /api/v1/databases/:db_name/export/sqlite` downloads a consistent standalone `.db` snapshot, including committed data in the WAL.
-- `GET /api/v1/databases/:db_name/export/sql` returns `{ "sql": "..." }`. The dump reads schema and data in one transaction and preserves SQLite text, BLOB, timestamp and NULL values, plus indexes, views and triggers.
-
-Both endpoints accept the owner's JWT or an API key scoped to that database.
-
-## SQL Isolation
-
-`POST /api/v1/databases/:db_name/sql` accepts `{ "query": "..." }` for SQL within the selected database. Tenant connections reject `ATTACH`, `DETACH`, filesystem SQL functions, extension loading and directory/writable-schema pragmas. `VACUUM` and `VACUUM INTO` also use SQLite's attach operation and are unavailable through tenant connections. Rejected SQL returns **400 Bad Request**.
+Use [SQL execution](/api-reference/sql) for queries and writes, and [database exports](/api-reference/exports) for SQL dumps or SQLite snapshots. Both support the owner's JWT or a database-scoped API key.

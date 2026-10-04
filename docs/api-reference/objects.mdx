@@ -1,0 +1,35 @@
+---
+title: Database objects
+description: "Inspect user-defined SQLite indexes and triggers."
+---
+
+**Endpoint:** `GET /api/v1/databases/:db_name/objects`
+
+Authenticate with the owner's JWT or an API key scoped to this database.
+
+```bash
+curl http://localhost:8080/api/v1/databases/mydb/objects \
+  -H "Authorization: ApiKey <your-database-key>"
+```
+
+## Response
+
+```json
+{
+  "indexes": [
+    {
+      "name": "products_name_idx",
+      "tableName": "products",
+      "unique": false,
+      "sql": "CREATE INDEX products_name_idx ON products(name)"
+    }
+  ],
+  "triggers": []
+}
+```
+
+Each index contains `name`, `tableName`, `unique`, and `sql`. Each trigger contains `name`, `tableName`, and `sql`. Empty collections are arrays.
+
+Internal SQLite indexes, including `sqlite_autoindex_*`, are excluded. Tables and views are not returned by this endpoint. Use [tables](/api-reference/tables) for table metadata or [SQL execution](/api-reference/sql) to inspect `sqlite_master` and create or remove indexes and triggers.
+
+An unknown database returns **404**. Inspection failures return **500**.
