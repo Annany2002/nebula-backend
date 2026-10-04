@@ -1,0 +1,47 @@
+---
+title: Database exports
+description: "Download SQLite snapshots or export schema and data as SQL."
+---
+
+Both endpoints accept the owner's JWT or an API key scoped to the selected database.
+
+## SQL dump
+
+**Endpoint:** `GET /api/v1/databases/:db_name/export/sql`
+
+```bash
+curl http://localhost:8080/api/v1/databases/mydb/export/sql \
+  -H "Authorization: ApiKey <your-database-key>"
+```
+
+The response is JSON, not a SQL file:
+
+```json
+{"sql":"...SQL statements...","filename":"mydb.sql"}
+```
+
+To save just the SQL text, use `jq`:
+
+```bash
+curl --fail http://localhost:8080/api/v1/databases/mydb/export/sql \
+  -H "Authorization: ApiKey <your-database-key>" \
+  | jq -r '.sql' > mydb.sql
+```
+
+The dump reads schema and data in one transaction and includes indexes, views, and triggers. SQLite text, BLOB, timestamp, and NULL values are preserved.
+
+## SQLite snapshot
+
+**Endpoint:** `GET /api/v1/databases/:db_name/export/sqlite`
+
+```bash
+curl --fail http://localhost:8080/api/v1/databases/mydb/export/sqlite \
+  -H "Authorization: ApiKey <your-database-key>" \
+  --output mydb.db
+```
+
+The response is a binary download with an attachment filename. It is a consistent standalone SQLite snapshot, including committed data in the WAL. Open it locally with SQLite tooling.
+
+These endpoints provide downloads on demand. Nebula does not provide scheduled backups or a restore/upload endpoint. Exported data should be stored with the same care as the source database.
+
+Unknown databases return **404**. Export failures return **500** with a JSON `error` before a download begins.

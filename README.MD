@@ -192,6 +192,17 @@ internal/
 
 The default storage layout is `data/metadata.db` and `data/<user_id>/<db_name>.db`. Separate database files share the host's compute and disk resources.
 
+## API documentation
+
+The documentation source is in [`docs/`](docs), configured by [`docs/docs.json`](docs/docs.json). To preview it separately from the frontend:
+
+```bash
+cd docs
+npx mint@4.2.984 dev --port 3002
+```
+
+Validate changes with `npx mint@4.2.984 validate` and `npx mint@4.2.984 broken-links`. The [publishing guide](docs/guides/documentation.mdx) describes connecting Mintlify to this repository's `main` branch with `/docs` as the documentation directory, then configuring the frontend's `VITE_DOCS_URL`.
+
 ## Development
 
 ```bash

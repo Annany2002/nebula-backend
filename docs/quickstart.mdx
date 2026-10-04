@@ -10,8 +10,8 @@ Follow these steps to get Nebula Backend up and running on your local machine.
 ## Prerequisites
 
 <CardGroup cols={2}>
-  <Card title="Go 1.18+" icon="golang">
-    Required for local development
+  <Card title="Go 1.24.1+" icon="golang">
+    Required for local development, along with a C compiler for the SQLite driver
   </Card>
   <Card title="Docker" icon="docker">
     Required for containerized deployment
@@ -60,7 +60,7 @@ Follow these steps to get Nebula Backend up and running on your local machine.
     Start all services with a single command:
     
     ```bash
-    docker-compose up --build
+    docker compose up --build
     ```
     
     This starts:

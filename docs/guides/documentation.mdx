@@ -1,0 +1,50 @@
+---
+title: Publish the documentation
+description: "Preview, validate, and host the Nebula documentation."
+---
+
+Nebula's public documentation lives in the backend repository's `docs/` directory. Mintlify hosts these files separately from the API and frontend.
+
+## Preview locally
+
+Use Node.js 24 or later. From the backend repository:
+
+```bash
+cd docs
+npx mint@4.2.984 dev --port 3002
+```
+
+Open [http://localhost:3002](http://localhost:3002). Port `3002` avoids the frontend's default port `3000`. This preview command is for local development.
+
+Before submitting documentation changes:
+
+```bash
+npx mint@4.2.984 validate
+npx mint@4.2.984 broken-links
+```
+
+Keep API examples aligned with `api/router.go`, `api/handlers/`, and the DTOs in `api/models/` and `internal/domain/`. Contributors should review the relevant documentation whenever a route or response contract changes.
+
+## Publish with Mintlify
+
+1. Sign in to [Mintlify](https://dashboard.mintlify.com/) and create a documentation project.
+2. Connect GitHub and grant the Mintlify app access to `Annany2002/nebula-backend`.
+3. In the project's Git settings, select that repository and the `main` branch.
+4. Enable **docs.json is in a subdirectory** and set the path to `/docs` without a trailing slash.
+5. Save the configuration. After deployment succeeds, copy the public documentation URL from the dashboard.
+
+See Mintlify's [repository setup guide](https://www.mintlify.com/docs/deploy/monorepo) for the current dashboard controls. Once connected, documentation changes merged into the configured branch are deployed by Mintlify.
+
+## Connect the landing page
+
+In the frontend's hosting provider, set `VITE_DOCS_URL` to the published API overview URL: the public site URL followed by `/api-reference/overview`. Redeploy the frontend so Vite includes the value in the client bundle.
+
+For local testing, put the following in the frontend's `.env.local` and restart Vite:
+
+```bash
+VITE_DOCS_URL=http://localhost:3002/api-reference/overview
+```
+
+The desktop navbar, mobile menu, and footer share this setting. When unset, they open the API reference source on GitHub. The documentation URL is independent of `VITE_BACKEND_URL`.
+
+Publishing on Mintlify does not require changing the backend port, restarting the API, or restarting an existing Cloudflare tunnel.

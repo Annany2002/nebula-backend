@@ -1,0 +1,31 @@
+---
+title: Analytics
+description: "Request telemetry and schema advisor findings."
+---
+
+**Endpoint:** `GET /api/v1/databases/:db_name/analytics`
+
+Authenticate with the owner's JWT or an API key scoped to this database.
+
+```bash
+curl http://localhost:8080/api/v1/databases/mydb/analytics \
+  -H "Authorization: ApiKey <your-database-key>"
+```
+
+## Response
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `totalRequests` | integer | Recorded requests during the reporting window |
+| `successRate` | number | Percentage of successful requests, from 0 to 100 |
+| `timeframe` | string | Reporting window, currently `24h` |
+| `services` | array | Metrics grouped by service |
+| `advisor` | array | Schema and security findings |
+
+Each service includes `name`, `requests`, `warnings` (4xx responses), `errors` (5xx responses), and `history`. Each history bucket contains `timestamp`, `requests`, `warnings`, and `errors`.
+
+Each advisor finding includes `id`, `category`, `severity`, `title`, `description`, and `suggestion`, with optional `tableName`. Findings inspect the current schema; they are not a complete security audit.
+
+The window is fixed to the previous 24 hours. There are no timeframe or pagination query parameters. Telemetry is collected asynchronously, so the most recent request may not appear immediately. A database with no recorded requests reports `successRate: 100`.
+
+An unknown database returns **404**. Storage or analytics failures return **500**.

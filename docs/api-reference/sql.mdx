@@ -1,0 +1,55 @@
+---
+title: SQL execution
+description: "Execute SQL within a database."
+---
+
+**Endpoint:** `POST /api/v1/databases/:db_name/sql`
+
+Authenticate with the owner's JWT or an API key scoped to this database.
+
+<ParamField body="query" type="string" required>
+  SQL statement to execute. Whitespace-only queries are rejected.
+</ParamField>
+
+```bash
+curl -X POST http://localhost:8080/api/v1/databases/mydb/sql \
+  -H "Authorization: ApiKey <your-database-key>" \
+  -H "Content-Type: application/json" \
+  -d '{"query":"SELECT id, name FROM products ORDER BY id LIMIT 10"}'
+```
+
+## Query response
+
+```json
+{
+  "columns": ["id", "name"],
+  "rows": [[1, "Notebook"]],
+  "rowCount": 1,
+  "rowsAffected": 0,
+  "executionMs": 1,
+  "message": "1 row(s) returned in 1ms"
+}
+```
+
+`rows` is an array of arrays in the same order as `columns`. `columns` and `rows` may be omitted when empty. `rowCount`, `rowsAffected`, and `executionMs` are always present. Execution times vary.
+
+## Write response
+
+For statements such as `INSERT`, `UPDATE`, `DELETE`, or `CREATE`, the response includes the affected-row count:
+
+```json
+{
+  "rowCount": 0,
+  "rowsAffected": 1,
+  "executionMs": 1,
+  "message": "Statement executed successfully in 1ms (1 rows affected)"
+}
+```
+
+The server classifies statements beginning with `SELECT`, `PRAGMA`, `EXPLAIN`, or `WITH` as queries; other statements use the execution path. This endpoint does not provide bound parameters or API pagination. Add SQL `LIMIT` clauses when reading large tables.
+
+## Database boundary
+
+Tenant connections reject `ATTACH`, `DETACH`, filesystem SQL functions, extension loading, and directory/writable-schema pragmas. `VACUUM` and `VACUUM INTO` are unavailable because they use SQLite's attach operation. SQL execution failures return **400** with an `error` string; an unknown database returns **404**.
+
+SQL writes change the selected database immediately. Use the [exports API](/api-reference/exports) before destructive changes.

@@ -1,0 +1,93 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "mint",
+  "name": "Nebula",
+  "description": "REST API documentation for Nebula, the open-source backend built with Go and SQLite.",
+  "logo": {
+    "dark": "/logo/nebula-mark.png",
+    "light": "/logo/nebula-mark.png"
+  },
+  "favicon": "/logo/nebula-mark.png",
+  "colors": {
+    "primary": "#7C3AED",
+    "light": "#A78BFA",
+    "dark": "#6D28D9"
+  },
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Guides",
+        "groups": [
+          {
+            "group": "Get started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "architecture"
+            ]
+          },
+          {
+            "group": "Deploy and contribute",
+            "pages": [
+              "guides/configuration",
+              "guides/deployment",
+              "guides/documentation",
+              "guides/contributing"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API reference",
+        "groups": [
+          {
+            "group": "Access and accounts",
+            "pages": [
+              "api-reference/overview",
+              "api-reference/authentication",
+              "api-reference/user-profile",
+              "api-reference/api-keys"
+            ]
+          },
+          {
+            "group": "Databases and data",
+            "pages": [
+              "api-reference/databases",
+              "api-reference/schemas",
+              "api-reference/tables",
+              "api-reference/records",
+              "api-reference/sql"
+            ]
+          },
+          {
+            "group": "Inspect and export",
+            "pages": [
+              "api-reference/analytics",
+              "api-reference/diagram",
+              "api-reference/objects",
+              "api-reference/exports"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "navbar": {
+    "links": [
+      {
+        "label": "GitHub",
+        "href": "https://github.com/Annany2002/nebula-backend"
+      }
+    ],
+    "primary": {
+      "type": "button",
+      "label": "Quick start",
+      "href": "/quickstart"
+    }
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/Annany2002/nebula-backend"
+    }
+  }
+}
