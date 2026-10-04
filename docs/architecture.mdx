@@ -5,15 +5,14 @@ description: "Understanding Nebula's system design"
 
 # Architecture Overview
 
-Nebula follows a **layered architecture** with clear separation of concerns, designed for containerized deployment with Kubernetes.
+Nebula follows a **layered architecture** with clear separation of concerns, with SQLite persistence. A reverse proxy or tunnel can provide HTTPS in front of the Go server.
 
 ## High-Level Flow
 
 ```mermaid
 flowchart LR
-    Client[Client/SDK] --> LB[Load Balancer]
-    LB --> Nginx[Nginx]
-    Nginx --> Backend[Go Backend]
+    Client[Client/SDK] --> Proxy[Optional HTTPS proxy or tunnel]
+    Proxy --> Backend[Go Backend]
     Backend --> MetaDB[(metadata.db)]
     Backend --> UserDB[(user DBs)]
 ```
@@ -120,7 +119,7 @@ sequenceDiagram
 
 ## Deployment
 
-Nebula is designed for containerized deployment:
+Nebula runs as a Go binary or Docker container. Kubernetes deployments require your own manifests:
 
 | Component | Purpose |
 |-----------|---------|
