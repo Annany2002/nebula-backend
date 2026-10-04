@@ -1,6 +1,10 @@
-# Nebula Backend
+<p align="center">
+  <img src="docs/logo/nebula-mark.png" alt="Nebula logo" width="96" height="96" />
+</p>
 
-Open-source Backend-as-a-Service built with Go, Gin, and SQLite. Provision user databases, define schemas, and access data through REST. [Nebula Studio](https://github.com/Annany2002/nebula-frontend) provides the web interface; the [TypeScript SDK](https://github.com/Annany2002/nebula-sdk-ts) provides a client library.
+<h1 align="center">Nebula Backend</h1>
+
+Open-source Backend-as-a-Service built with Go, Gin, and SQLite. Provision user databases, define schemas, and access data through REST. [Nebula frontend](https://github.com/Annany2002/nebula-frontend) provides the web interface; the [TypeScript SDK](https://github.com/Annany2002/nebula-sdk-ts) provides a client library.
 
 ## Features
 
@@ -17,14 +21,6 @@ Open-source Backend-as-a-Service built with Go, Gin, and SQLite. Provision user 
 | HTTP middleware  | Authentication, configurable CORS, IP rate limiting, telemetry, and error handling                                                                  |
 
 Schema alteration is available, but a versioned application migration history is not. Snapshot exports do not include scheduled backup management or a restore endpoint. API keys are scoped to a database, without separate read-only or per-table permissions.
-
-## Studio preview
-
-The frontend renders the backend's schema and foreign-key metadata as an interactive diagram. This screenshot uses synthetic demo data.
-
-![Nebula Studio schema visualizer with tables and foreign-key relationships](docs/images/studio-schema.png)
-
-See the [Studio README](https://github.com/Annany2002/nebula-frontend#screenshots) for the Projects, table editor, and SQL editor views.
 
 ## Quick start
 
@@ -51,7 +47,7 @@ curl http://localhost:8080/ping
 # pong
 ```
 
-Run Studio separately using the [frontend setup instructions](https://github.com/Annany2002/nebula-frontend#local-setup). Its development port is `3000`.
+Run the frontend separately using the [frontend setup instructions](https://github.com/Annany2002/nebula-frontend#local-setup). Its development port is `3000`.
 
 ### Configuration
 
@@ -73,7 +69,7 @@ The configuration loader reads `.env` during development. Set production configu
 docker compose up --build
 ```
 
-The Compose stack starts the API on `8080` and the Mintlify documentation on `3000`. The docs service is separate from Studio; use separate ports if running both. The stack mounts `./data` for persistent storage and reads your `.env`.
+The Compose stack starts the API on `8080` and the Mintlify documentation on `3000`. The docs service is separate from the frontend; use separate ports if running both. The stack mounts `./data` for persistent storage and reads your `.env`.
 
 The [documentation source](docs/introduction.mdx) lives in `docs/`. API routes are defined in [api/router.go](api/router.go).
 
