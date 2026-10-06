@@ -805,7 +805,7 @@ func GetDatabaseObjects(ctx context.Context, userDB *sql.DB) (*domain.DatabaseOb
 	SELECT m.name, m.tbl_name, m.sql, p."unique"
 	FROM sqlite_master AS m
 	JOIN pragma_index_list(m.tbl_name) AS p ON p.name = m.name
-	WHERE m.type='index' AND m.name NOT LIKE 'sqlite_autoindex_%' AND m.name NOT LIKE 'sqlite_%'
+	WHERE m.type='index' AND lower(m.name) NOT GLOB 'sqlite_*'
 	ORDER BY m.tbl_name, m.name;`)
 	if err != nil {
 		return nil, fmt.Errorf("failed querying indexes: %w", err)

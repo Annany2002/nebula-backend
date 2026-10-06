@@ -32,14 +32,14 @@ func ErrorHandler() gin.HandlerFunc {
 		if errors.Is(err, storage.ErrUserNotFound) ||
 			errors.Is(err, storage.ErrDatabaseNotFound) ||
 			errors.Is(err, storage.ErrRecordNotFound) ||
-			errors.Is(err, storage.ErrTableNotFound) {
+			errors.Is(err, storage.ErrTableNotFound) || errors.Is(err, storage.ErrIndexNotFound) {
 			statusCode = http.StatusNotFound
 			userMessage = err.Error()
 			// *** NEW: Check for Invalid Credentials ***
 		} else if errors.Is(err, auth.ErrForbidden) {
 			statusCode = http.StatusForbidden
 			userMessage = "Access to this resource is forbidden."
-		} else if errors.Is(err, auth.ErrBadRequest) || errors.Is(err, storage.ErrInvalidSortColumn) || errors.Is(err, storage.ErrInvalidFieldColumn) {
+		} else if errors.Is(err, auth.ErrBadRequest) || errors.Is(err, storage.ErrInvalidSortColumn) || errors.Is(err, storage.ErrInvalidFieldColumn) || errors.Is(err, storage.ErrInvalidIndex) {
 			statusCode = http.StatusBadRequest
 			userMessage = err.Error()
 		} else if errors.Is(err, storage.ErrInvalidCredentials) || errors.Is(err, auth.ErrUnauthorized) {
@@ -48,7 +48,7 @@ func ErrorHandler() gin.HandlerFunc {
 			// *** END NEW ***
 		} else if errors.Is(err, storage.ErrEmailExists) ||
 			errors.Is(err, storage.ErrDatabaseExists) ||
-			errors.Is(err, storage.ErrConstraintViolation) {
+			errors.Is(err, storage.ErrConstraintViolation) || errors.Is(err, storage.ErrIndexExists) {
 			statusCode = http.StatusConflict
 			userMessage = err.Error()
 		} else if errors.Is(err, auth.ErrTokenMalformed) ||

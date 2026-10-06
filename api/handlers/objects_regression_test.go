@@ -15,6 +15,7 @@ func TestDatabaseObjectsReportsSQLiteIndexUniqueness(t *testing.T) {
 	_, db := f.database(t, "objects")
 	_, err := db.Exec(`
 CREATE INDEX non_unique_label ON items(label);
+CREATE INDEX sqliteX_label ON items(label);
 CREATE INDEX commented_label ON items(label) /* UNIQUE is only a comment */;
 CREATE UNIQUE INDEX label_lookup ON items(label);
 CREATE TABLE "quoted table" ("unique label" TEXT UNIQUE);
@@ -25,9 +26,10 @@ CREATE UNIQUE INDEX "quoted unique index" ON "quoted table" ("unique label");`)
 	require.Equal(t, http.StatusOK, out.Code, out.Body.String())
 	var objects domain.DatabaseObjects
 	require.NoError(t, json.Unmarshal(out.Body.Bytes(), &objects))
-	require.Len(t, objects.Indexes, 5)
+	require.Len(t, objects.Indexes, 6)
 	want := map[string]bool{
 		"non_unique_label":    false,
+		"sqliteX_label":       false,
 		"commented_label":     false,
 		"label_lookup":        true,
 		"quoted index":        false,
