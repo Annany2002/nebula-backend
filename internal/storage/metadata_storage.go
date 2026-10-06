@@ -369,7 +369,7 @@ func GetDatabaseDetails(ctx context.Context, metaDB *sql.DB, userId, dbName stri
 				var tblName string
 				if err := rows.Scan(&tblName); err == nil {
 					var count int64
-					_ = userDB.QueryRowContext(ctx, fmt.Sprintf("SELECT COUNT(*) FROM %s;", tblName)).Scan(&count)
+					_ = userDB.QueryRowContext(ctx, fmt.Sprintf("SELECT COUNT(*) FROM %s;", QuoteIdentifier(tblName))).Scan(&count)
 					totalRecords += count
 				}
 			}
