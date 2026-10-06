@@ -802,10 +802,11 @@ func GetDatabaseSchemaDiagram(ctx context.Context, userDB *sql.DB) (*domain.Sche
 func GetDatabaseObjects(ctx context.Context, userDB *sql.DB) (*domain.DatabaseObjects, error) {
 	// Query Indexes
 	indexRows, err := userDB.QueryContext(ctx, `
-	SELECT name, tbl_name, sql 
-	FROM sqlite_master 
-	WHERE type='index' AND name NOT LIKE 'sqlite_autoindex_%' AND name NOT LIKE 'sqlite_%'
-	ORDER BY tbl_name, name;`)
+	SELECT m.name, m.tbl_name, m.sql, p."unique"
+	FROM sqlite_master AS m
+	JOIN pragma_index_list(m.tbl_name) AS p ON p.name = m.name
+	WHERE m.type='index' AND m.name NOT LIKE 'sqlite_autoindex_%' AND m.name NOT LIKE 'sqlite_%'
+	ORDER BY m.tbl_name, m.name;`)
 	if err != nil {
 		return nil, fmt.Errorf("failed querying indexes: %w", err)
 	}
@@ -815,13 +816,16 @@ func GetDatabaseObjects(ctx context.Context, userDB *sql.DB) (*domain.DatabaseOb
 	for indexRows.Next() {
 		var idx domain.IndexInfo
 		var sqlStr sql.NullString
-		if err := indexRows.Scan(&idx.Name, &idx.TableName, &sqlStr); err == nil {
-			if sqlStr.Valid {
-				idx.SQL = sqlStr.String
-				idx.Unique = strings.Contains(strings.ToUpper(sqlStr.String), "UNIQUE")
-			}
-			indexes = append(indexes, idx)
+		if err := indexRows.Scan(&idx.Name, &idx.TableName, &sqlStr, &idx.Unique); err != nil {
+			return nil, fmt.Errorf("failed scanning index metadata: %w", err)
 		}
+		if sqlStr.Valid {
+			idx.SQL = sqlStr.String
+		}
+		indexes = append(indexes, idx)
+	}
+	if err := indexRows.Err(); err != nil {
+		return nil, fmt.Errorf("failed reading index metadata: %w", err)
 	}
 
 	// Query Triggers
@@ -839,12 +843,16 @@ func GetDatabaseObjects(ctx context.Context, userDB *sql.DB) (*domain.DatabaseOb
 	for triggerRows.Next() {
 		var trg domain.TriggerInfo
 		var sqlStr sql.NullString
-		if err := triggerRows.Scan(&trg.Name, &trg.TableName, &sqlStr); err == nil {
-			if sqlStr.Valid {
-				trg.SQL = sqlStr.String
-			}
-			triggers = append(triggers, trg)
+		if err := triggerRows.Scan(&trg.Name, &trg.TableName, &sqlStr); err != nil {
+			return nil, fmt.Errorf("failed scanning trigger metadata: %w", err)
 		}
+		if sqlStr.Valid {
+			trg.SQL = sqlStr.String
+		}
+		triggers = append(triggers, trg)
+	}
+	if err := triggerRows.Err(); err != nil {
+		return nil, fmt.Errorf("failed reading trigger metadata: %w", err)
 	}
 
 	return &domain.DatabaseObjects{
