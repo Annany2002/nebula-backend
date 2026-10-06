@@ -107,6 +107,8 @@ These endpoints accept a JWT or a key scoped to the selected database.
 | GET | `/api/v1/databases/:db_name/analytics` | [Analytics](/api-reference/analytics) |
 | GET | `/api/v1/databases/:db_name/diagram` | [Schema diagram](/api-reference/diagram) |
 | GET | `/api/v1/databases/:db_name/objects` | [Database objects](/api-reference/objects) |
+| POST | `/api/v1/databases/:db_name/indexes` | [Create an index](/api-reference/objects#create-an-index) |
+| DELETE | `/api/v1/databases/:db_name/indexes/:index_name` | [Drop an index](/api-reference/objects#drop-an-index) |
 | GET | `/api/v1/databases/:db_name/export/sql` | [SQL dump](/api-reference/exports) |
 | GET | `/api/v1/databases/:db_name/export/sqlite` | [SQLite snapshot](/api-reference/exports) |
 

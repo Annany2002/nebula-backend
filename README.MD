@@ -16,6 +16,7 @@ Open-source Backend-as-a-Service built with Go, Gin, and SQLite. Provision user 
 | Schemas          | Create tables with typed columns and foreign keys; add/rename/drop columns and rename tables, including transactional batches of schema alterations |
 | Records          | Create/read/update/delete records, column equality filters, pagination, sorting, and field selection                                                |
 | SQL              | Execute SQL and return columns, rows, affected-row counts, and execution time                                                                       |
+| Indexes          | Create standard/unique composite indexes over named columns and drop custom indexes, with SQLite/internal index protection                         |
 | Inspection       | Table metadata, foreign-key diagrams, indexes, triggers, database size/record counts, and request analytics                                         |
 | Exports          | Consistent SQLite snapshot downloads and SQL dumps                                                                                                  |
 | HTTP middleware  | Authentication, configurable CORS, IP rate limiting, telemetry, and error handling                                                                  |
@@ -167,6 +168,8 @@ Database paths below are relative to `/api/v1/databases/:db_name`.
 | GET, POST         | `/tables/:table_name/records`               | List or create records                                |
 | GET, PUT, DELETE  | `/tables/:table_name/records/:record_id`    | Read, update, or delete one record                    |
 | POST              | `/sql`                                      | Execute a SQL query from a `query` JSON field         |
+| POST              | `/indexes`                                  | Create a standard or unique index                     |
+| DELETE            | `/indexes/:index_name`                       | Drop a custom index                                   |
 | GET               | `/diagram`, `/objects`, `/analytics`        | Schema relationships, database objects, and analytics |
 | GET               | `/export/sql`, `/export/sqlite`             | SQL dump or SQLite snapshot                           |
 | GET, PUT          | `/api/v1/account/user/me`                   | Read or update the account profile                    |

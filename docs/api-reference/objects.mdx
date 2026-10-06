@@ -1,6 +1,6 @@
 ---
 title: Database objects
-description: "Inspect user-defined SQLite indexes and triggers."
+description: "Inspect SQLite objects and manage custom indexes."
 ---
 
 **Endpoint:** `GET /api/v1/databases/:db_name/objects`
@@ -30,6 +30,72 @@ curl http://localhost:8080/api/v1/databases/mydb/objects \
 
 Each index contains `name`, `tableName`, `unique`, and `sql`. Each trigger contains `name`, `tableName`, and `sql`. Empty collections are arrays.
 
-Internal SQLite indexes, including `sqlite_autoindex_*`, are excluded. Tables and views are not returned by this endpoint. Use [tables](/api-reference/tables) for table metadata or [SQL execution](/api-reference/sql) to inspect `sqlite_master` and create or remove indexes and triggers.
+Internal SQLite indexes, including `sqlite_autoindex_*`, are excluded. Tables and views are not returned by this endpoint. Use [tables](/api-reference/tables) for table metadata. The endpoints below manage custom indexes; use [SQL execution](/api-reference/sql) for expression/partial indexes and trigger creation or removal.
 
 An unknown database returns **404**. Inspection failures return **500**.
+
+## Create an index
+
+**Endpoint:** `POST /api/v1/databases/:db_name/indexes`
+
+Accepts an owner JWT or an API key scoped to this database.
+
+```bash
+curl -X POST http://localhost:8080/api/v1/databases/mydb/indexes \
+  -H "Authorization: ApiKey <your-database-key>" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"products_name_idx","table_name":"products","columns":["name"],"unique":false}'
+```
+
+| Field | Type | Behavior |
+| --- | --- | --- |
+| `name` | string | Required; 1–64 ASCII letters, digits or underscores. Index names are case insensitive within a database. |
+| `table_name` | string | Required; an existing ordinary user table. Views, virtual tables, shadow tables and internal tables are excluded. |
+| `columns` | string[] | Required; 1–64 distinct existing column names, in index order. Generated columns are supported. |
+| `unique` | boolean | Optional; defaults to `false`. A unique index must be compatible with existing rows. |
+
+Named columns are quoted as identifiers, including those in tables created through SQL with spaces or quotes in their names. Expressions, predicates, custom collations and sort directions are not accepted as column expressions; use SQL for these definitions. Index/table names starting with `sqlite_` or `_nebula_` are reserved. Unknown payload fields and additional JSON values are rejected rather than silently changing the intended definition. Creation builds the index synchronously and does not change records.
+
+**201 Created:**
+
+```json
+{
+  "message": "Index created successfully",
+  "db_name": "mydb",
+  "index": {
+    "name": "products_name_idx",
+    "tableName": "products",
+    "unique": false,
+    "sql": "CREATE INDEX \"products_name_idx\" ON \"products\" (\"name\")"
+  }
+}
+```
+
+The `index` matches the existing objects catalog metadata. Composite indexes preserve the supplied column order. Repeating a request returns **409** rather than replacing an existing object, including when its definition differs. A failed unique-index build returns **409** and leaves the index absent and records unchanged.
+
+Invalid payloads, missing/repeated columns, reserved names, and unsupported table types return **400**. Missing tables or databases return **404**. Other storage failures return **500**.
+
+## Drop an index
+
+**Endpoint:** `DELETE /api/v1/databases/:db_name/indexes/:index_name`
+
+Accepts the same authentication. URL-encode the index name; this also supports custom indexes previously created through SQL with quoted names.
+
+```bash
+curl -X DELETE http://localhost:8080/api/v1/databases/mydb/indexes/products_name_idx \
+  -H "Authorization: ApiKey <your-database-key>"
+```
+
+**200 OK:**
+
+```json
+{
+  "message": "Index dropped successfully",
+  "db_name": "mydb",
+  "index_name": "products_name_idx"
+}
+```
+
+Deletion preserves the table and all its records. Dropping a unique index removes the uniqueness guarantee it provided. SQLite's automatic PRIMARY KEY/UNIQUE indexes and indexes on internal or shadow tables cannot be dropped here (**400**).
+
+A missing index or database returns **404**, including repeated deletion. Names are resolved case insensitively and the acknowledgement returns the stored index name. Storage failures return **500**. Both mutation endpoints return **401** for missing/invalid credentials and **403** when an API key targets a different database. Errors use the existing `{ "error": "..." }` envelope.
