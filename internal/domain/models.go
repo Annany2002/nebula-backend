@@ -156,6 +156,17 @@ type TriggerInfo struct {
 	SQL       string `json:"sql"`
 }
 
+// TriggerDefinition describes the trigger header and the SQL statements inside BEGIN/END.
+type TriggerDefinition struct {
+	Name      string   `json:"name"`
+	TableName string   `json:"table_name"`
+	Timing    string   `json:"timing,omitempty"`
+	Event     string   `json:"event"`
+	UpdateOf  []string `json:"update_of,omitempty"`
+	When      string   `json:"when,omitempty"`
+	Body      string   `json:"body"`
+}
+
 // DatabaseObjects represents SQLite indexes and triggers
 type DatabaseObjects struct {
 	Indexes  []IndexInfo   `json:"indexes"`
