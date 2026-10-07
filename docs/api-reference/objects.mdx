@@ -1,6 +1,6 @@
 ---
 title: Database objects
-description: "Inspect SQLite objects and manage custom indexes."
+description: "Inspect SQLite objects and manage custom indexes and table triggers."
 ---
 
 **Endpoint:** `GET /api/v1/databases/:db_name/objects`
@@ -30,7 +30,7 @@ curl http://localhost:8080/api/v1/databases/mydb/objects \
 
 Each index contains `name`, `tableName`, `unique`, and `sql`. Each trigger contains `name`, `tableName`, and `sql`. Empty collections are arrays.
 
-Internal SQLite indexes, including `sqlite_autoindex_*`, are excluded. Tables and views are not returned by this endpoint. Use [tables](/api-reference/tables) for table metadata. The endpoints below manage custom indexes; use [SQL execution](/api-reference/sql) for expression/partial indexes and trigger creation or removal.
+Internal SQLite indexes, including `sqlite_autoindex_*`, are excluded. Tables and views are not returned by this endpoint. Use [tables](/api-reference/tables) for table metadata. The endpoints below manage custom indexes and table triggers. Use [SQL execution](/api-reference/sql) for expression/partial indexes and view-trigger creation.
 
 An unknown database returns **404**. Inspection failures return **500**.
 
@@ -99,3 +99,88 @@ curl -X DELETE http://localhost:8080/api/v1/databases/mydb/indexes/products_name
 Deletion preserves the table and all its records. Dropping a unique index removes the uniqueness guarantee it provided. SQLite's automatic PRIMARY KEY/UNIQUE indexes and indexes on internal or shadow tables cannot be dropped here (**400**).
 
 A missing index or database returns **404**, including repeated deletion. Names are resolved case insensitively and the acknowledgement returns the stored index name. Storage failures return **500**. Both mutation endpoints return **401** for missing/invalid credentials and **403** when an API key targets a different database. Errors use the existing `{ "error": "..." }` envelope.
+
+
+---
+
+## Create a trigger
+
+**Endpoint:** `POST /api/v1/databases/:db_name/triggers`
+
+Accepts a JWT or an API key scoped to the named database. Creates a persistent trigger on an ordinary user table; views, virtual tables and shadow tables are not supported by this creation endpoint.
+
+```bash
+curl -X POST http://localhost:8080/api/v1/databases/mydb/triggers \
+  -H 'Authorization: ApiKey YOUR_API_KEY' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "name": "audit_order_status",
+    "table_name": "orders",
+    "timing": "AFTER",
+    "event": "UPDATE",
+    "update_of": ["status"],
+    "when": "NEW.status IS NOT OLD.status",
+    "body": "INSERT INTO order_audit (order_id, old_status, new_status) VALUES (NEW.id, OLD.status, NEW.status);"
+  }'
+```
+
+The example assumes `orders(id, status)` and `order_audit(order_id, old_status, new_status)` already exist.
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `name` | string | Required; 1–64 ASCII letters, digits or underscores. |
+| `table_name` | string | Required; an existing ordinary user table. Quoted names are supported. |
+| `timing` | string | Optional; `AFTER` (default) or `BEFORE`. |
+| `event` | string | Required; `INSERT`, `UPDATE` or `DELETE`. |
+| `update_of` | string[] | Optional; up to 64 distinct existing writable columns, only for `UPDATE`. Omitted or empty means any column. Generated columns are not selectable. |
+| `when` | string | Optional SQL condition, up to 8 KiB of UTF-8 bytes. Omitted, empty or whitespace means unconditional. |
+| `body` | string | Required; nonempty SQL statements, each terminated by a semicolon, up to 64 KiB of UTF-8 bytes. Supply only statements inside the trigger, without `CREATE TRIGGER`, `BEGIN` or the final `END` wrapper. |
+
+Timing and event values accept either case and surrounding whitespace. Table and update-column names resolve case insensitively to their stored names. Trigger/table names starting with `sqlite_` or `_nebula_`, NUL characters, unknown JSON fields, multiple JSON values and requests larger than 128 KiB are rejected. The request-size limit also applies to JSON escaping and whitespace.
+
+Use `NEW.column` for INSERT, `OLD.column` for DELETE, and either for UPDATE. SQL body statements and conditions must remain within the trigger definition; appending a separate top-level command is rejected without executing it. SQLite's [trigger syntax restrictions](https://www.sqlite.org/lang_createtrigger.html) apply. `AFTER` is the default; SQLite recommends it for actions that modify rows. `BEFORE` is useful for validation such as `SELECT RAISE(ABORT, 'message');`.
+
+Creation validates the header, UPDATE OF columns and SQL syntax, then compiles a matching mutation to check body/condition references before committing. It does not execute that mutation or any trigger actions, including calls to `RAISE`. Missing referenced tables/columns, unavailable functions and invalid OLD/NEW references fail with **400** and leave no trigger. Other triggers that would fire for the same validation mutation must also compile. Runtime failures, recursive actions and future schema changes can still make subsequent writes fail; creation is not a trial execution.
+
+**Response: 201 Created**
+
+```json
+{
+  "message": "Trigger created successfully",
+  "db_name": "mydb",
+  "trigger": {
+    "name": "audit_order_status",
+    "tableName": "orders",
+    "sql": "CREATE TRIGGER \"audit_order_status\" AFTER UPDATE OF \"status\" ON \"orders\"\nWHEN (NEW.status IS NOT OLD.status\n)\nBEGIN\nINSERT INTO order_audit (order_id, old_status, new_status) VALUES (NEW.id, OLD.status, NEW.status);\nEND"
+  }
+}
+```
+
+The `trigger` has the same shape as the objects catalog. Names already used by a schema object return **409**, including repeated creation with the same definition; existing objects are never replaced. A missing target table returns **404**. User-controlled definitions cannot attach databases or use the tenant connection's restricted filesystem functions.
+
+---
+
+## Drop a trigger
+
+**Endpoint:** `DELETE /api/v1/databases/:db_name/triggers/:trigger_name`
+
+Accepts the same authentication. URL-encode the trigger name; custom triggers created through SQL with quoted names and `INSTEAD OF` view triggers can also be dropped.
+
+```bash
+curl -X DELETE http://localhost:8080/api/v1/databases/mydb/triggers/audit_order_status \
+  -H 'Authorization: ApiKey YOUR_API_KEY'
+```
+
+**Response: 200 OK**
+
+```json
+{
+  "message": "Trigger dropped successfully",
+  "db_name": "mydb",
+  "trigger_name": "audit_order_status"
+}
+```
+
+Deletion preserves existing records and stops future trigger actions. Any validation or automatic maintenance supplied by the trigger also stops. Names resolve case insensitively; the response returns the stored trigger name. Internal names and triggers on internal, virtual or shadow tables return **400**. A missing trigger or database returns **404**, including repeated deletion. Table/index names are not treated as triggers.
+
+Both trigger endpoints return **401** for missing/invalid credentials and **403** for an API key scoped to another database. Storage failures return **500**. Errors use the existing `{ "error": "..." }` envelope.
