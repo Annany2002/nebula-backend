@@ -120,6 +120,7 @@ func SetupRouter(metaDB *sql.DB, cfg *config.Config) *gin.Engine {
 		// Databases Management
 		apiRoutes.GET("/databases", dbHandler.ListDatabases)
 		apiRoutes.POST("/databases", dbHandler.CreateDatabase)
+		apiRoutes.POST("/databases/import/sqlite", dbHandler.ImportSQLite)
 		apiRoutes.GET("/databases/:db_name", dbHandler.GetDatabase)
 		apiRoutes.DELETE("/databases/:db_name", dbHandler.DeleteDatabase)
 		apiRoutes.POST("/databases/:db_name/sql", dbHandler.ExecuteSQL)
