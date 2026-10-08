@@ -1,0 +1,72 @@
+---
+title: SQLite import
+description: "Restore a standalone SQLite snapshot into a new database."
+---
+
+**Endpoint:** `POST /api/v1/databases/import/sqlite`
+
+Requires the owner's JWT. Database-scoped API keys cannot create a new database and return **403**. The destination belongs to the authenticated account, regardless of the uploaded filename or the snapshot's origin.
+
+## Request
+
+Send `multipart/form-data` containing exactly one `db_name` text field and one `file` upload, in either order. Do not set `Content-Type` manually when using browser `FormData` or `curl -F`; the client generates the multipart boundary.
+
+```bash
+curl --fail-with-body http://localhost:8080/api/v1/databases/import/sqlite \
+  -H "Authorization: Bearer <your-jwt-token>" \
+  -F 'db_name=restored_db' \
+  -F 'file=@mydb.db'
+```
+
+| Field | Requirements |
+| --- | --- |
+| `db_name` | A new name containing 1–64 ASCII letters, digits or underscores. |
+| `file` | One standalone SQLite 3 database, at most **64 MiB** (67,108,864 bytes). The filename is ignored for storage. |
+
+The complete HTTP body is limited to 64 MiB plus 64 KiB for multipart framing. Upload and import share a 60-second budget; SQLite validation has at most 30 seconds. The server permits two simultaneous imports; additional imports return **503** with `Retry-After: 5`.
+
+## Response
+
+```json
+{
+  "message": "Database imported successfully",
+  "db_name": "restored_db",
+  "size_bytes": 32768
+}
+```
+
+Returns **201 Created** only after the validated snapshot is published and its database registration is committed. `size_bytes` is the uploaded snapshot's byte length; later SQLite writes may change its size. The database then appears in the existing list, details, schema, records and objects APIs. Generate an API key separately if needed.
+
+## Validation and preservation
+
+The import checks the SQLite header, page layout, full `integrity_check`, and foreign-key consistency on a read-only, immutable validation connection. Ordinary tables, records, indexes, views, triggers, SQLite sequences, BLOBs and NULLs are preserved. Validation does not execute imported triggers, replay SQL, or insert records.
+
+The first version rejects virtual/shadow tables, reserved `_nebula_` schema objects, schemas that fail validation under the read-only restrictions, corrupt databases, and foreign-key violations. SQL dumps, encrypted databases, ZIP files and separate WAL/journal files are not accepted. View/trigger definitions are preserved; integrity validation does not guarantee every future application query or trigger action will succeed.
+
+Existing registrations, database files, symlinks and SQLite sidecar files at the destination are never replaced. Reusing a name returns **409**; import does not merge or overwrite data. Failed requests clean up their staging file, and a failed metadata commit removes the newly published file. Filesystem publication and SQLite metadata are separate durability boundaries: an abrupt process/host failure can leave an unregistered file. A later import will refuse to overwrite it; operators should inspect such files before removal.
+
+Platform users, credentials, API keys and telemetry are not migrated into Nebula's platform metadata. Everything inside the uploaded database remains user data in the new database.
+
+<Warning>
+Use Nebula's [SQLite snapshot export](/api-reference/exports), SQLite's backup API, or a fully checkpointed database. Copying an active `.db` file can omit committed records still in its WAL. A valid main file cannot prove that no newer WAL data was omitted by the sender.
+</Warning>
+
+## Errors and retries
+
+All errors use the existing JSON `{ "error": "..." }` format.
+
+| Status | Meaning |
+| --- | --- |
+| **400** | Invalid fields, malformed upload, invalid snapshot, or unsupported schema. |
+| **401** | Missing or invalid credentials. |
+| **403** | API-key authentication is not allowed for import. |
+| **408** | Upload/validation timed out or the request was cancelled. |
+| **409** | The destination registration, file or sidecar already exists. |
+| **413** | Snapshot or complete request exceeds its size limit. |
+| **415** | Request is not `multipart/form-data` with a boundary. |
+| **500** | Storage, validation infrastructure or metadata commit failed. |
+| **503** | Both import slots are occupied. |
+
+Do not automatically retry a write after a timeout, disconnect or ambiguous response. Refresh the database list/details first: the server may have completed the import before the response was lost. Repeating the same name cannot create a second database and does not replace the first one.
+
+Scheduled backups, SQL-dump import and restoring over an existing database remain separate features.

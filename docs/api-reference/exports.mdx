@@ -42,6 +42,6 @@ curl --fail http://localhost:8080/api/v1/databases/mydb/export/sqlite \
 
 The response is a binary download with an attachment filename. It is a consistent standalone SQLite snapshot, including committed data in the WAL. Open it locally with SQLite tooling.
 
-These endpoints provide downloads on demand. Nebula does not provide scheduled backups or a restore/upload endpoint. Exported data should be stored with the same care as the source database.
+Restore a standalone SQLite snapshot into a new database through [SQLite import](/api-reference/imports), using an owner JWT. These endpoints provide downloads on demand; scheduled backups and restoring over an existing database are not implemented. Exported data should be stored with the same care as the source database.
 
 Unknown databases return **404**. Export failures return **500** with a JSON `error` before a download begins.

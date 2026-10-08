@@ -20,9 +20,10 @@ Open-source Backend-as-a-Service built with Go, Gin, and SQLite. Provision user 
 | Triggers         | Create validated BEFORE/AFTER table triggers for insert/update/delete events, optional conditions and update columns, and drop custom triggers |
 | Inspection       | Table metadata, foreign-key diagrams, indexes, triggers, database size/record counts, and request analytics                                         |
 | Exports          | Consistent SQLite snapshot downloads and SQL dumps                                                                                                  |
+| SQLite import    | Restore a validated standalone snapshot into a new database, with owner JWT authentication, a 64 MiB limit and conflict protection |
 | HTTP middleware  | Authentication, configurable CORS, IP rate limiting, telemetry, and error handling                                                                  |
 
-Schema alteration is available, but a versioned application migration history is not. Snapshot exports do not include scheduled backup management or a restore endpoint. API keys are scoped to a database, without separate read-only or per-table permissions.
+Schema alteration is available, but a versioned application migration history is not. SQLite import restores into a new database; SQL-dump import, scheduled backups and overwriting existing databases are not implemented. API keys are scoped to a database, without separate read-only or per-table permissions.
 
 ## Quick start
 
@@ -160,6 +161,7 @@ Database paths below are relative to `/api/v1/databases/:db_name`.
 | Method            | Path                                        | Purpose                                               |
 | ----------------- | ------------------------------------------- | ----------------------------------------------------- |
 | GET, POST         | `/api/v1/databases`                         | List or create databases                              |
+| POST              | `/api/v1/databases/import/sqlite`            | Import a snapshot into a new database (owner JWT)      |
 | GET, DELETE       | `/api/v1/databases/:db_name`                | Database details or deletion                          |
 | GET, POST         | `/tables`                                   | List or create tables                                 |
 | POST              | `/schema`                                   | Create a table schema                                 |

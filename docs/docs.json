@@ -53,6 +53,7 @@
             "group": "Databases and data",
             "pages": [
               "api-reference/databases",
+              "api-reference/imports",
               "api-reference/schemas",
               "api-reference/tables",
               "api-reference/records",

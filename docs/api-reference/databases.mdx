@@ -5,7 +5,7 @@ description: "Create and manage databases"
 
 # Database Management
 
-Create, list, and delete databases. Each database is an isolated SQLite file.
+Create, list, and delete databases, or [import a standalone SQLite snapshot](/api-reference/imports) into a new database. Each database is an isolated SQLite file.
 
 <Note>
   Database management requires **user-scoped authentication** (JWT Bearer token). API keys cannot list, create, or delete databases. Details and exports also accept a key scoped to the selected database.
