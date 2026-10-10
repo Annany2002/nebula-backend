@@ -60,6 +60,7 @@ func SetupRouter(metaDB *sql.DB, cfg *config.Config) *gin.Engine {
 	dbHandler := handlers.NewDatabaseHandler(metaDB, cfg)
 	recordHandler := handlers.NewRecordHandler(metaDB, cfg)
 	tableHandler := handlers.NewTableHandler(metaDB, cfg)
+	backupHandler := handlers.NewBackupHandler(metaDB, cfg.MetadataDbDir)
 
 	// --- Public Routes ---
 	router.GET("/ping", func(c *gin.Context) { c.String(200, "pong") })
@@ -121,6 +122,12 @@ func SetupRouter(metaDB *sql.DB, cfg *config.Config) *gin.Engine {
 		apiRoutes.GET("/databases", dbHandler.ListDatabases)
 		apiRoutes.POST("/databases", dbHandler.CreateDatabase)
 		apiRoutes.POST("/databases/import/sqlite", dbHandler.ImportSQLite)
+		apiRoutes.POST("/databases/:db_name/backups", backupHandler.Create)
+		apiRoutes.GET("/backups", backupHandler.List)
+		apiRoutes.GET("/backups/:backup_id", backupHandler.Get)
+		apiRoutes.GET("/backups/:backup_id/download", backupHandler.Download)
+		apiRoutes.POST("/backups/:backup_id/restore", backupHandler.Restore)
+		apiRoutes.DELETE("/backups/:backup_id", backupHandler.Delete)
 		apiRoutes.GET("/databases/:db_name", dbHandler.GetDatabase)
 		apiRoutes.DELETE("/databases/:db_name", dbHandler.DeleteDatabase)
 		apiRoutes.POST("/databases/:db_name/sql", dbHandler.ExecuteSQL)
