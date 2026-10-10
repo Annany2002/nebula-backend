@@ -2,10 +2,12 @@
 package storage
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	_ "github.com/mattn/go-sqlite3" // Driver registration
 
@@ -130,6 +132,16 @@ func ConnectMetadataDB(cfg *config.Config) (*sql.DB, error) {
 	}
 
 	customLog.Println("Storage: Database Telemetry table ensured.")
+	if err := ensureBackupSchema(db); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("ensure backup metadata: %w", err)
+	}
+	recoveryCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := NewBackupStore(db, cfg.MetadataDbDir).Recover(recoveryCtx); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("recover interrupted backups: %w", err)
+	}
 
 	return db, nil
 }

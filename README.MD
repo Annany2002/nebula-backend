@@ -16,14 +16,15 @@ Open-source Backend-as-a-Service built with Go, Gin, and SQLite. Provision user 
 | Schemas          | Create tables with typed columns and foreign keys; add/rename/drop columns and rename tables, including transactional batches of schema alterations |
 | Records          | Create/read/update/delete records, column equality filters, pagination, sorting, and field selection                                                |
 | SQL              | Execute SQL and return columns, rows, affected-row counts, and execution time                                                                       |
-| Indexes          | Create standard/unique composite indexes over named columns and drop custom indexes, with SQLite/internal index protection                         |
-| Triggers         | Create validated BEFORE/AFTER table triggers for insert/update/delete events, optional conditions and update columns, and drop custom triggers |
+| Indexes          | Create standard/unique composite indexes over named columns and drop custom indexes, with SQLite/internal index protection                          |
+| Triggers         | Create validated BEFORE/AFTER table triggers for insert/update/delete events, optional conditions and update columns, and drop custom triggers      |
 | Inspection       | Table metadata, foreign-key diagrams, indexes, triggers, database size/record counts, and request analytics                                         |
 | Exports          | Consistent SQLite snapshot downloads and SQL dumps                                                                                                  |
-| SQLite import    | Restore a validated standalone snapshot into a new database, with owner JWT authentication, a 64 MiB limit and conflict protection |
+| SQLite import    | Restore a validated standalone snapshot into a new database, with owner JWT authentication, a 64 MiB limit and conflict protection                  |
+| Managed backups  | Save owner-only verified snapshots, inspect history, download/delete them, and restore into a new database                                          |
 | HTTP middleware  | Authentication, configurable CORS, IP rate limiting, telemetry, and error handling                                                                  |
 
-Schema alteration is available, but a versioned application migration history is not. SQLite import restores into a new database; SQL-dump import, scheduled backups and overwriting existing databases are not implemented. API keys are scoped to a database, without separate read-only or per-table permissions.
+Schema alteration is available, but a versioned application migration history is not. SQLite import and managed backup restore create new databases; SQL-dump import, scheduled backups and overwriting existing databases are not implemented. API keys are scoped to a database, without separate read-only or per-table permissions.
 
 ## Quick start
 
@@ -161,7 +162,12 @@ Database paths below are relative to `/api/v1/databases/:db_name`.
 | Method            | Path                                        | Purpose                                               |
 | ----------------- | ------------------------------------------- | ----------------------------------------------------- |
 | GET, POST         | `/api/v1/databases`                         | List or create databases                              |
-| POST              | `/api/v1/databases/import/sqlite`            | Import a snapshot into a new database (owner JWT)      |
+| POST              | `/api/v1/databases/import/sqlite`           | Import a snapshot into a new database (owner JWT)     |
+| POST              | `/backups`                                  | Save a manual snapshot (owner JWT)                    |
+| GET               | `/api/v1/backups`                           | Account backup history (owner JWT)                    |
+| GET, DELETE       | `/api/v1/backups/:backup_id`                | Inspect or delete a retained snapshot (owner JWT)     |
+| GET               | `/api/v1/backups/:backup_id/download`       | Download a verified snapshot (owner JWT)              |
+| POST              | `/api/v1/backups/:backup_id/restore`        | Restore into a new database (owner JWT)               |
 | GET, DELETE       | `/api/v1/databases/:db_name`                | Database details or deletion                          |
 | GET, POST         | `/tables`                                   | List or create tables                                 |
 | POST              | `/schema`                                   | Create a table schema                                 |
@@ -171,10 +177,10 @@ Database paths below are relative to `/api/v1/databases/:db_name`.
 | GET, POST         | `/tables/:table_name/records`               | List or create records                                |
 | GET, PUT, DELETE  | `/tables/:table_name/records/:record_id`    | Read, update, or delete one record                    |
 | POST              | `/sql`                                      | Execute a SQL query from a `query` JSON field         |
-| POST              | `/triggers`                                 | Create a validated table trigger                       |
-| DELETE            | `/triggers/:trigger_name`                    | Drop a custom trigger                                 |
+| POST              | `/triggers`                                 | Create a validated table trigger                      |
+| DELETE            | `/triggers/:trigger_name`                   | Drop a custom trigger                                 |
 | POST              | `/indexes`                                  | Create a standard or unique index                     |
-| DELETE            | `/indexes/:index_name`                       | Drop a custom index                                   |
+| DELETE            | `/indexes/:index_name`                      | Drop a custom index                                   |
 | GET               | `/diagram`, `/objects`, `/analytics`        | Schema relationships, database objects, and analytics |
 | GET               | `/export/sql`, `/export/sqlite`             | SQL dump or SQLite snapshot                           |
 | GET, PUT          | `/api/v1/account/user/me`                   | Read or update the account profile                    |
@@ -222,3 +228,11 @@ make check        # Format, lint, and test
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md). This project is [MIT licensed](LICENSE).
+
+## Managed backups
+
+Create a retained backup with `POST /api/v1/databases/:db_name/backups` and JSON `{"backup_id":"<new canonical UUID>"}`. Reusing that UUID and source name returns the original completed snapshot; use a fresh UUID for a new backup. Deleted UUIDs remain reserved. All backup endpoints require the owner JWT, and retained snapshots survive source database deletion.
+
+The first version limits snapshots to 64 MiB, active backups to 20 per account, retained/reserved bytes to 256 MiB per account, and simultaneous snapshot work to two operations. A creation reserves 64 MiB until its actual size is known. Downloads/restores verify size and SHA-256; restore uses the existing import validation and refuses existing destinations.
+
+Backup files are private local files under `DATABASE_DIRECTORY/.nebula-backups/`. Startup recovery discards interrupted creations and finishes interrupted deletions; run one backend process per metadata directory. Saved backups share the host with live data, so download and retain an off-server copy for host-loss recovery. Scheduling, automatic retention and remote storage are not implemented. See the [backup API contract](docs/api-reference/backups.mdx) for requests, pagination, errors and retry semantics.

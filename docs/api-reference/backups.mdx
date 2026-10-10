@@ -1,0 +1,139 @@
+---
+title: Managed backups
+description: "Save verified SQLite snapshots and restore them into new databases."
+---
+
+Manual backups retain a standalone SQLite snapshot on the server. All endpoints require an **owner JWT**. Database-scoped API keys return **403**. Each lookup is scoped to the authenticated account; snapshot paths and owner IDs are never returned.
+
+| Method | Endpoint                              | Purpose                                               |
+| ------ | ------------------------------------- | ----------------------------------------------------- |
+| POST   | `/api/v1/databases/:db_name/backups`  | Save a snapshot using a caller-generated backup UUID. |
+| GET    | `/api/v1/backups`                     | List the account's retained backups.                  |
+| GET    | `/api/v1/backups/:backup_id`          | Read one backup's metadata.                           |
+| GET    | `/api/v1/backups/:backup_id/download` | Download verified snapshot bytes.                     |
+| POST   | `/api/v1/backups/:backup_id/restore`  | Restore into a new database.                          |
+| DELETE | `/api/v1/backups/:backup_id`          | Delete the retained snapshot.                         |
+
+## Create a backup
+
+Generate a new, canonical lowercase UUID for each new backup. Preserve it if the request's outcome is unknown; retrying that same ID and source name returns the original completed snapshot, rather than taking another snapshot of newer data.
+
+```bash
+curl --fail-with-body http://localhost:8080/api/v1/databases/mydb/backups \
+  -H "Authorization: Bearer <your-jwt-token>" \
+  -H 'Content-Type: application/json' \
+  -d '{"backup_id":"5d5c3244-090b-4b89-bb76-e13d4263fb47"}'
+```
+
+Returns **201 Created** for the first completed creation, or **200 OK** for an identical completed replay. The `Location` header points to the metadata endpoint.
+
+```json
+{
+  "backup": {
+    "backup_id": "5d5c3244-090b-4b89-bb76-e13d4263fb47",
+    "db_name": "mydb",
+    "status": "ready",
+    "size_bytes": 32768,
+    "sha256": "<64 lowercase hexadecimal characters>",
+    "created_at": "2026-10-10T06:00:00.123Z"
+  }
+}
+```
+
+`created_at` records when creation was reserved; concurrent writes can continue while SQLite produces its consistent snapshot. Committed WAL data is included. Saved bytes are immutable through the API, and the snapshot's SHA-256 and size are checked before download or restore.
+
+A backup ID is global and cannot be reassigned to a different source. Deleted IDs remain reserved as small metadata tombstones, preventing delayed requests from deleting a newer snapshot. Use a fresh UUID to create another backup after deletion.
+
+The snapshot must pass the [SQLite import policy](/api-reference/imports#validation-and-preservation), including SQLite integrity and foreign-key checks. Unsupported schemas and inconsistent foreign keys are rejected; no partial backup is exposed as `ready`. Empty databases produce a valid standalone snapshot.
+
+## History and limits
+
+```http
+GET /api/v1/backups?db_name=mydb&limit=20&offset=0
+```
+
+`db_name` is optional. `limit` defaults to 20 and accepts 1–100; `offset` defaults to zero and accepts 0–1,000,000. Numeric parameters must contain decimal digits, and duplicate/unknown query parameters are rejected. History is ordered by creation timestamp descending, then backup UUID ascending. The total and page are read from one metadata transaction.
+
+```json
+{
+  "backups": [],
+  "pagination": { "total": 0, "limit": 20, "offset": 0 }
+}
+```
+
+Snapshots survive deleting the source database; listing and restoring them do not require that original database to still exist. Filtering by source name includes snapshots of earlier databases that used that name. The first version does not expose the internal source database ID.
+
+The first version has these server limits:
+
+- **64 MiB** per snapshot, matching the import limit.
+- **20** active backups and **256 MiB** of retained/reserved snapshot bytes per account.
+- Two simultaneous snapshot creation, integrity-verification or restore operations per server store.
+- A 30-second operation and HTTP read/write budget, plus bounded cleanup after a cancelled creation.
+- At most 4 KiB per JSON request body; unknown JSON fields and trailing JSON values are rejected.
+
+An in-progress creation reserves the full 64 MiB allowance before copying. Completed backups consume their actual byte size. Deletion releases the count and byte allowance after its snapshot is removed durably. Temporary restore copies and filesystem overhead are separate from the retained-byte quota.
+
+Metadata statuses are `creating`, `ready`, and `deleting`. Download and restore require `ready`. A request for an in-progress operation returns **503** with `Retry-After: 5`; inspect its status before retrying. List/details do not hash snapshot bytes; download/restore report **409** if a ready file is missing or corrupt.
+
+## Download
+
+```bash
+curl --fail-with-body http://localhost:8080/api/v1/backups/5d5c3244-090b-4b89-bb76-e13d4263fb47/download \
+  -H "Authorization: Bearer <your-jwt-token>" \
+  --output snapshot.db
+```
+
+Returns the verified binary snapshot as `application/octet-stream`, with its exact content length, an attachment filename based on the backup UUID, and `Cache-Control: no-store`. A pinned file handle allows an already-open download to finish if the backup is concurrently deleted.
+
+## Restore into a new database
+
+```bash
+curl --fail-with-body http://localhost:8080/api/v1/backups/5d5c3244-090b-4b89-bb76-e13d4263fb47/restore \
+  -H "Authorization: Bearer <your-jwt-token>" \
+  -H 'Content-Type: application/json' \
+  -d '{"db_name":"restored_db"}'
+```
+
+Returns **201 Created** after the verified bytes are validated and published through the existing SQLite import mechanism:
+
+```json
+{
+  "message": "Backup restored successfully",
+  "backup_id": "5d5c3244-090b-4b89-bb76-e13d4263fb47",
+  "db_name": "restored_db",
+  "size_bytes": 32768
+}
+```
+
+The new name must contain 1–64 ASCII letters, digits or underscores. Existing database registrations, files, symlinks and SQLite sidecars are never replaced. The saved backup remains intact. Platform accounts, credentials, API keys and telemetry are not restored; generate a new database API key separately.
+
+After a timeout or disconnected response, check the destination database inventory before retrying. Repeating the same name cannot create another database or overwrite the first one; an existing destination returns **409**. The original source name can be reused only after that database and its destination files/sidecars have been removed.
+
+## Delete
+
+`DELETE /api/v1/backups/:backup_id` returns **204 No Content**, including repeated deletion or an ID not visible to the authenticated owner. Invalid UUIDs return **400**. Deletion during snapshot creation returns **503**; it never interrupts a creation to remove partially published files. An interrupted deletion retains a tombstone until startup recovery completes file removal.
+
+## Errors and recovery
+
+Backup handler errors preserve the platform's `error` field and add a stable `code`:
+
+```json
+{ "error": "Destination database already exists.", "code": "database_exists" }
+```
+
+| Status  | Meaning                                                                                  |
+| ------- | ---------------------------------------------------------------------------------------- |
+| **400** | Invalid UUID, destination, pagination, JSON or unsupported/inconsistent SQLite snapshot. |
+| **401** | Missing, invalid or expired JWT.                                                         |
+| **403** | Database API key cannot manage backups.                                                  |
+| **404** | Backup or source database is not visible to this owner.                                  |
+| **408** | Operation cancelled or timed out.                                                        |
+| **409** | Backup ID conflict, destination conflict, quota reached or snapshot unavailable.         |
+| **413** | Snapshot exceeds 64 MiB or JSON request exceeds 4 KiB.                                   |
+| **415** | Request body is not `application/json`.                                                  |
+| **500** | Storage, durability or metadata failure.                                                 |
+| **503** | An operation is in progress or both work slots are occupied.                             |
+
+Filesystem publication and metadata updates are separate boundaries. The server durably publishes the complete snapshot before marking it ready. On startup, interrupted creations are discarded and interrupted deletions are completed before traffic is accepted. Confirmed ready snapshots are preserved. Storage recovery errors stop startup rather than silently marking unsafe data ready.
+
+This local filesystem store requires **one backend server process per metadata directory**. Backups are held under `DATABASE_DIRECTORY/.nebula-backups/` in private directories. They remain on the same host: download and store a copy elsewhere to recover from host or disk loss. Scheduled backups, automatic retention, remote storage, SQL-dump restore and overwriting an existing database are separate features.

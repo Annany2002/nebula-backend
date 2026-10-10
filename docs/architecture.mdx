@@ -128,3 +128,9 @@ Nebula runs as a Go binary or Docker container. Kubernetes deployments require y
 | PersistentVolume | Store SQLite files across restarts |
 | Ingress | Route external traffic |
 | ConfigMap/Secret | Manage configuration |
+
+## Managed snapshot storage
+
+`database_backups` in platform metadata tracks each snapshot's owner, source identity/name, lifecycle status, size, SHA-256 and creation time. Backup rows intentionally do not cascade when a source database is deleted. Private snapshot files live under `data/.nebula-backups/<owner>/<backup_uuid>.db`.
+
+The store reserves quota before work, uses the shared SQLite online snapshot engine, and publishes only a validated complete file before committing `ready`. A process-local database lifecycle lock serializes snapshot capture with source deletion. Startup recovery removes interrupted creations and finishes deletions; deleted UUIDs remain reserved to make delayed requests safe. The store requires one backend server process per metadata directory. Restore reuses the existing SQLite import publication mechanism.

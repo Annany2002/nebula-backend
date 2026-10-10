@@ -51,25 +51,15 @@ func (h *DatabaseHandler) CreateDatabase(c *gin.Context) {
 		return
 	}
 
-	// Construct file path
-	userDbDir := filepath.Join(h.Cfg.MetadataDbDir, userId)
-	dbFilePath := filepath.Join(userDbDir, req.DBName+".db")
-
-	// Ensure user directory exists (moved from handler to make it more reusable?)
-	// Or keep it here as it's tied to the registration action. Let's keep it here.
-	if err := os.MkdirAll(userDbDir, 0o750); err != nil {
-		customLog.Warnf("Create DB: Error creating user DB directory '%s': %v", userDbDir, err)
-		_ = c.Error(fmt.Errorf("storage setup error: %w", err))
-		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to create database storage location"})
-		return
-	}
-
-	// Register in metadata DB using storage function
-	err := storage.RegisterDatabase(c.Request.Context(), h.MetaDB, userId, req.DBName, dbFilePath)
+	// Publish a materialized empty file before acknowledging creation. A registration
+	// alone cannot distinguish a never-opened database from a lost source file.
+	err := storage.CreateEmptyDatabase(c.Request.Context(), h.MetaDB, h.Cfg.MetadataDbDir, userId, req.DBName)
 	if err != nil {
 		_ = c.Error(err) // Pass storage error to context
 		if errors.Is(err, storage.ErrDatabaseExists) {
 			c.AbortWithStatusJSON(http.StatusConflict, gin.H{"error": "A database with this name already exists."})
+		} else if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			c.AbortWithStatusJSON(http.StatusRequestTimeout, gin.H{"error": "Database creation was cancelled or timed out."})
 		} else {
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to register database."})
 		}
@@ -185,6 +175,12 @@ func (h *DatabaseHandler) DeleteDatabase(c *gin.Context) {
 		return
 	}
 
+	release, err := storage.LockDatabaseLifecycle(c.Request.Context(), userId, dbName)
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusRequestTimeout, gin.H{"error": "Database deletion was cancelled."})
+		return
+	}
+	defer release()
 	// 1. Find the file path *before* deleting the registration
 	dbFilePath, err := storage.FindDatabasePath(c.Request.Context(), h.MetaDB, userId, dbName)
 	if err != nil {

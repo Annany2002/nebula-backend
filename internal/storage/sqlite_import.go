@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/mattn/go-sqlite3"
 
@@ -136,11 +137,8 @@ func validateSQLiteSnapshot(ctx context.Context, path string) (int64, error) {
 	if unsupported != 0 {
 		return 0, fmt.Errorf("%w: virtual and shadow tables are not supported", ErrInvalidSnapshot)
 	}
-	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_schema WHERE lower(substr(name,1,8))='_nebula_'`).Scan(&unsupported); err != nil {
-		return 0, snapshotValidationError(ctx, err)
-	}
-	if unsupported != 0 {
-		return 0, fmt.Errorf("%w: reserved schema objects are not supported", ErrInvalidSnapshot)
+	if err := validateSnapshotInternalSchema(ctx, db); err != nil {
+		return 0, err
 	}
 	rows, err := db.QueryContext(ctx, "PRAGMA foreign_key_check")
 	if err != nil {
@@ -154,6 +152,36 @@ func validateSQLiteSnapshot(ctx context.Context, path string) (int64, error) {
 		return 0, snapshotValidationError(ctx, err)
 	}
 	return size, nil
+}
+
+// Native Nebula exports contain this timestamp table. Accept only the exact
+// platform definition and its implicit index, never arbitrary reserved objects
+// or triggers/indexes that run against internal metadata during normal listing.
+func validateSnapshotInternalSchema(ctx context.Context, db *sql.DB) error {
+	rows, err := db.QueryContext(ctx, `SELECT type,name,tbl_name,coalesce(sql,'') FROM sqlite_schema
+ WHERE lower(substr(name,1,8))='_nebula_' OR lower(substr(tbl_name,1,8))='_nebula_'`)
+	if err != nil {
+		return snapshotValidationError(ctx, err)
+	}
+	defer rows.Close() //nolint:errcheck // Read-only schema inspection.
+	canonical := strings.TrimSuffix(strings.Join(strings.Fields(strings.Replace(tableMetadataDDL, " IF NOT EXISTS", "", 1)), " "), ";")
+	for rows.Next() {
+		var kind, name, table, definition string
+		if err := rows.Scan(&kind, &name, &table, &definition); err != nil {
+			return snapshotValidationError(ctx, err)
+		}
+		if table == "_nebula_table_metadata" && kind == "table" && name == table && strings.Join(strings.Fields(definition), " ") == canonical {
+			continue
+		}
+		if table == "_nebula_table_metadata" && kind == "index" && name == "sqlite_autoindex__nebula_table_metadata_1" && definition == "" {
+			continue
+		}
+		return fmt.Errorf("%w: reserved or modified internal schema objects are not supported", ErrInvalidSnapshot)
+	}
+	if err := rows.Err(); err != nil {
+		return snapshotValidationError(ctx, err)
+	}
+	return nil
 }
 
 func snapshotValidationError(ctx context.Context, err error) error {

@@ -68,3 +68,24 @@ func TestSQLiteImportCancelledValidationDoesNotPublish(t *testing.T) {
 	_, err = os.Lstat(filepath.Join(dir, "owner"))
 	require.ErrorIs(t, err, os.ErrNotExist)
 }
+
+func TestSQLiteSnapshotRejectsModifiedOrDependentInternalObjects(t *testing.T) {
+	for name, schema := range map[string]string{
+		"modified table":                 `CREATE TABLE _nebula_table_metadata(table_name TEXT PRIMARY KEY,created_at TEXT)`,
+		"reserved object":                `CREATE TABLE _nebula_custom(value TEXT)`,
+		"internal trigger":               tableMetadataDDL + ` CREATE TRIGGER hidden AFTER INSERT ON _nebula_table_metadata BEGIN DELETE FROM items; END;`,
+		"internal index":                 tableMetadataDDL + ` CREATE INDEX hidden ON _nebula_table_metadata(created_at);`,
+		"internal trigger on user table": tableMetadataDDL + ` CREATE TRIGGER _nebula_hidden AFTER INSERT ON items BEGIN DELETE FROM items; END;`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "snapshot.db")
+			db, err := sql.Open("sqlite3", path)
+			require.NoError(t, err)
+			_, err = db.Exec(`CREATE TABLE items(id INTEGER PRIMARY KEY); ` + schema)
+			require.NoError(t, err)
+			require.NoError(t, db.Close())
+			_, err = validateSQLiteSnapshot(t.Context(), path)
+			require.ErrorIs(t, err, ErrInvalidSnapshot)
+		})
+	}
+}
