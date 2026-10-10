@@ -13,7 +13,7 @@ Create, list, and delete databases, or [import a standalone SQLite snapshot](/ap
 
 ## Create Database
 
-Register a new database for the authenticated user.
+Create a new database for the authenticated user. A successful response publishes a valid empty SQLite file and its registration together, so it can be backed up immediately without first creating a table. Existing registrations, files and sidecars are never replaced or adopted.
 
 **Endpoint:** `POST /api/v1/databases`
 

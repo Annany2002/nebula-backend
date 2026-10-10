@@ -66,7 +66,8 @@
               "api-reference/analytics",
               "api-reference/diagram",
               "api-reference/objects",
-              "api-reference/exports"
+              "api-reference/exports",
+              "api-reference/backups"
             ]
           }
         ]

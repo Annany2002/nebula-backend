@@ -112,6 +112,10 @@ These endpoints accept a JWT or a key scoped to the selected database.
 | GET | `/api/v1/databases/:db_name/export/sql` | [SQL dump](/api-reference/exports) |
 | GET | `/api/v1/databases/:db_name/export/sqlite` | [SQLite snapshot](/api-reference/exports) |
 
+### Managed backups (owner JWT only)
+
+Saved snapshots, history, verified downloads, deletion and restore into a new database are documented in the [managed backup API](/api-reference/backups). Snapshots survive deleting their source database; database-scoped API keys cannot manage them.
+
 ## Rate Limiting
 
 API requests are rate-limited by IP address. If you exceed the limit, you'll receive a `429 Too Many Requests` response.
