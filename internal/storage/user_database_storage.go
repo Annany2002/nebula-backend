@@ -29,6 +29,13 @@ var (
 	ErrInvalidFieldColumn  = errors.New("invalid field column")
 )
 
+// Keep the persisted internal schema identical across table creation and listing.
+const tableMetadataDDL = `
+	CREATE TABLE IF NOT EXISTS _nebula_table_metadata (
+		table_name TEXT PRIMARY KEY,
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+	);`
+
 // ListRecordsResult contains records and pagination metadata
 type ListRecordsResult struct {
 	Records    []map[string]any `json:"records"`
@@ -115,11 +122,7 @@ func PragmaTableInfo(ctx context.Context, userDB *sql.DB, tableName string) (map
 // ListTables retrieves a list of tables and their metadata from the user's database file.
 func ListTables(ctx context.Context, userDB *sql.DB) ([]domain.TableMetadata, error) {
 	// Ensure metadata tracking table exists and backfill existing tables
-	_, _ = userDB.ExecContext(ctx, `
-	CREATE TABLE IF NOT EXISTS _nebula_table_metadata (
-		table_name TEXT PRIMARY KEY,
-		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-	);`)
+	_, _ = userDB.ExecContext(ctx, tableMetadataDDL)
 	_, _ = userDB.ExecContext(ctx, `
 	INSERT OR IGNORE INTO _nebula_table_metadata (table_name, created_at)
 	SELECT name, CURRENT_TIMESTAMP FROM sqlite_master 
@@ -199,11 +202,7 @@ func CreateTable(ctx context.Context, userDB *sql.DB, tableName, createSQL strin
 	}
 
 	// Ensure metadata tracking table exists and record timestamp
-	_, _ = userDB.ExecContext(ctx, `
-	CREATE TABLE IF NOT EXISTS _nebula_table_metadata (
-		table_name TEXT PRIMARY KEY,
-		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-	);`)
+	_, _ = userDB.ExecContext(ctx, tableMetadataDDL)
 
 	if tableName != "" {
 		_, _ = userDB.ExecContext(ctx, `
