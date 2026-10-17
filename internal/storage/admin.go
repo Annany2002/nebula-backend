@@ -17,7 +17,18 @@ func ensureAdminSchema(db *sql.DB) error {
 	 user_id TEXT PRIMARY KEY NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
 	 created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 	);
-	CREATE INDEX IF NOT EXISTS idx_users_admin_created ON users(created_at DESC,user_id ASC);`)
+	CREATE INDEX IF NOT EXISTS idx_users_admin_created ON users(created_at DESC,user_id ASC);
+	CREATE TABLE IF NOT EXISTS account_suspensions (
+	 user_id TEXT PRIMARY KEY NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+	 suspended_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+	);
+	CREATE TABLE IF NOT EXISTS platform_account_events (
+	 event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+	 actor_user_id TEXT NOT NULL,
+	 target_user_id TEXT NOT NULL,
+	 action TEXT NOT NULL CHECK(action IN ('suspend','activate')),
+	 created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+	);`)
 	return err
 }
 
@@ -51,13 +62,23 @@ func SetPlatformAdmin(ctx context.Context, db *sql.DB, userID string, enabled bo
 	if !exists {
 		return ErrUserNotFound
 	}
+	if enabled {
+		var suspended bool
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM account_suspensions WHERE user_id=?)`, userID).Scan(&suspended); err != nil {
+			return err
+		}
+		if suspended {
+			return ErrAccountSuspended
+		}
+	}
 	return tx.Commit()
 }
 
 const adminUserSelect = `SELECT u.user_id,u.username,u.email,u.created_at,
  COALESCE(v.verified_email=u.email,0),COALESCE(v.required,0),
  CASE WHEN EXISTS(SELECT 1 FROM platform_admins a WHERE a.user_id=u.user_id) THEN 'admin' ELSE 'user' END,
- (SELECT COUNT(*) FROM databases d WHERE d.owner_id=u.user_id)
+ (SELECT COUNT(*) FROM databases d WHERE d.owner_id=u.user_id),
+ CASE WHEN EXISTS(SELECT 1 FROM account_suspensions s WHERE s.user_id=u.user_id) THEN 'suspended' ELSE 'active' END
  FROM users u LEFT JOIN account_email_verifications v ON v.user_id=u.user_id `
 
 type adminUserScanner interface{ Scan(...any) error }
@@ -65,7 +86,7 @@ type adminUserScanner interface{ Scan(...any) error }
 func scanAdminUser(row adminUserScanner) (domain.AdminUser, error) {
 	var user domain.AdminUser
 	err := row.Scan(&user.UserID, &user.Username, &user.Email, &user.CreatedAt,
-		&user.EmailVerified, &user.VerificationRequired, &user.Role, &user.DatabaseCount)
+		&user.EmailVerified, &user.VerificationRequired, &user.Role, &user.DatabaseCount, &user.Status)
 	return user, err
 }
 
@@ -115,11 +136,4 @@ func GetAdminUser(ctx context.Context, db *sql.DB, userID string) (domain.AdminU
 		err = ErrUserNotFound
 	}
 	return user, err
-}
-
-// GetPlatformStats uses one metadata snapshot and never opens tenant database files.
-func GetPlatformStats(ctx context.Context, db *sql.DB) (domain.PlatformStats, error) {
-	var stats domain.PlatformStats
-	err := db.QueryRowContext(ctx, `SELECT (SELECT COUNT(*) FROM users),(SELECT COUNT(*) FROM databases)`).Scan(&stats.TotalUsers, &stats.TotalDatabases)
-	return stats, err
 }

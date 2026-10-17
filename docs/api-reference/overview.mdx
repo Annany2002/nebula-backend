@@ -58,7 +58,9 @@ Nebula supports two authentication methods:
 | --- | --- | --- |
 | GET | `/api/v1/admin/users` | Paginated safe account metadata |
 | GET | `/api/v1/admin/users/:user_id` | Account details |
-| GET | `/api/v1/admin/stats` | Registered user and database counts |
+| GET | `/api/v1/admin/stats` | User, database and table counts with completeness information |
+| PUT | `/api/v1/admin/users/:user_id/suspend` | Suspend an account and revoke JWT sessions |
+| PUT | `/api/v1/admin/users/:user_id/activate` | Restore access while preserving verification requirements |
 
 These routes require explicit platform administrator membership, checked on every request. See [administration and operator provisioning](/api-reference/administration).
 

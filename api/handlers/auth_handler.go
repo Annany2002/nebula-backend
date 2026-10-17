@@ -115,12 +115,21 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return // Let middleware handle
 	}
 
-	if user.VerificationRequired && !user.EmailVerified {
+	access, err := storage.GetEmailVerificationStatus(c.Request.Context(), h.DB, user.UserId)
+	if err != nil {
+		_ = c.Error(err)
+		return
+	}
+	if access.Suspended {
+		c.JSON(http.StatusForbidden, gin.H{"error": "This account is suspended", "code": "account_suspended"})
+		return
+	}
+	if access.Required && !access.Verified {
 		c.JSON(403, gin.H{"error": "Verify your email before signing in", "code": "email_verification_required"})
 		return
 	}
 	// ... (generate JWT and return success) ...
-	tokenString, err := auth.GenerateSessionJWT(user.UserId, h.Cfg.JWTSecret, h.Cfg.JWTExpiration, user.SessionVersion)
+	tokenString, err := auth.GenerateSessionJWT(user.UserId, h.Cfg.JWTSecret, h.Cfg.JWTExpiration, access.SessionVersion)
 	if err != nil {
 		customLog.Warnf("Failed to generate JWT for user %s: %v", user.UserId, err)
 		_ = c.Error(err) // Attach JWT generation error

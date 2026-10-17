@@ -11,12 +11,18 @@ import (
 	"github.com/Annany2002/nebula-backend/internal/storage"
 )
 
-// AdminReadContext bounds authorization and queries, and prevents shared PII caching.
-func AdminReadContext() gin.HandlerFunc {
+// AdminRequestContext bounds authorization and queries, and prevents shared PII caching.
+func AdminRequestContext() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Header("Cache-Control", "no-store")
 		c.Writer.Header().Add("Vary", "Authorization")
-		ctx, cancel := context.WithTimeout(c.Request.Context(), 3*time.Second)
+		budget := 3 * time.Second
+		if c.Request.Method == http.MethodPut {
+			// The metadata driver's busy timeout is five seconds; leave room for a
+			// contended status transaction to fail cleanly before the HTTP deadline.
+			budget = 10 * time.Second
+		}
+		ctx, cancel := context.WithTimeout(c.Request.Context(), budget)
 		defer cancel()
 		c.Request = c.Request.WithContext(ctx)
 		c.Next()

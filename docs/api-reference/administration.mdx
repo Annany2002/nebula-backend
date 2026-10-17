@@ -1,11 +1,13 @@
 ---
 title: "Platform administration"
-description: "Read-only platform metadata with explicit administrator authorization."
+description: "Platform account management and statistics with explicit administrator authorization."
 ---
 
 These endpoints require a valid **Bearer JWT** belonging to a platform administrator. Ordinary user JWTs return **403**; API keys are rejected with **401**, including keys owned by an administrator. Existing account-verification and session-revocation checks still apply.
 
 Admin membership is checked in the metadata database on every request, rather than stored in a JWT. Revocation applies to subsequent requests without logging out or restarting the backend. Membership grants no additional access to other users' databases through ordinary data routes.
+
+Suspended accounts cannot log in or use protected endpoints with a JWT or API key, including administrator endpoints. Account verification is still required after activation where applicable.
 
 ## Provision an administrator
 
@@ -26,7 +28,7 @@ To revoke access:
 ./bin/nebula-admin --metadata-db ./data/metadata.db --user-id '<existing-account-id>' revoke
 ```
 
-Grants and revocations are idempotent. Unknown accounts are rejected. The operator must already have filesystem access to the metadata database; there is no automatic email-based or first-user bootstrap. Deleting an account removes its membership.
+Grants and revocations are idempotent. Unknown accounts and grants to suspended accounts are rejected. The operator must already have filesystem access to the metadata database; there is no automatic email-based or first-user bootstrap. Deleting an account removes its membership.
 
 ## List users
 
@@ -46,6 +48,7 @@ Authorization: Bearer <admin-jwt>
       "email_verified": false,
       "verification_required": false,
       "role": "user",
+      "status": "active",
       "database_count": 2
     }
   ],
@@ -75,18 +78,50 @@ Authorization: Bearer <admin-jwt>
 
 ```json
 {
-  "stats": { "total_users": 12, "total_databases": 18 }
+  "stats": {
+    "total_users": 12,
+    "total_databases": 18,
+    "total_tables": 54,
+    "databases_counted": 18,
+    "databases_unavailable": 0
+  }
 }
 ```
 
-Counts reflect registered metadata rows, not tenant-file health. These reads do not open tenant databases or scan their tables. Query parameters are not accepted.
+User and database counts use one metadata snapshot. Table counts inspect registered tenant schemas through read-only connections, including committed WAL changes. User tables and virtual tables count once; views, indexes, triggers, virtual-table shadow tables, SQLite internals and `_nebula_` metadata are excluded. Table rows are not read.
+
+An empty platform returns `total_tables: 0`. If any registered database is missing, corrupt, locked or inaccessible, `total_tables` is **null** and `databases_unavailable` records the number of unavailable schemas. Incomplete results never claim a complete total. Files outside the configured storage directory, symlink paths and non-regular files are not opened, and missing files are never created.
+
+Each schema inspection has a 250 ms budget within the shared request deadline. Only one statistics scan runs per router at a time; overlapping scans return **503** with `code: "admin_stats_busy"` and `Retry-After: 1`. Request cancellation or the overall deadline returns **408**. Counts across separate tenant databases are observations during the scan, not a globally atomic snapshot. Query parameters are not accepted.
+
+## Suspend or activate an account
+
+```http
+PUT /api/v1/admin/users/<account-id>/suspend
+Authorization: Bearer <admin-jwt>
+```
+
+```http
+PUT /api/v1/admin/users/<account-id>/activate
+Authorization: Bearer <admin-jwt>
+```
+
+Send no body, or an empty JSON object with `Content-Type: application/json`. Unknown fields, trailing values, non-object bodies and query parameters are rejected. Bodies are limited to 4 KiB with the request's read deadline.
+
+Both endpoints return **200** with `{ "user": { ... } }`, including `status: "active"` or `status: "suspended"`. Repeating the same desired state is a no-op. Missing accounts return **404**.
+
+Suspension blocks password login and all protected JWT/API-key access. Tenant data and API keys are retained. Both actual suspension and activation revoke earlier JWTs through the durable session version; after activation, sign in again. Existing database API keys resume access after activation, subject to email verification and their original database scope. Rotate a key separately if it was compromised. Already-running requests are not forcibly interrupted.
+
+Administrator accounts, including the caller, cannot be suspended (**409**, `admin_account_protected`). A trusted operator must revoke the target's admin membership through the CLI first. This prevents self-suspension and accidental admin lockouts through the API.
+
+Actor membership, suspension, verification and session version are rechecked inside the same metadata write transaction as the status transition. Concurrent role/status changes are serialized. The transition, session revocation and an audit event commit atomically; audit failure rolls everything back. `platform_account_events` retains actor/target IDs, action and timestamp, without credentials or email addresses. Duplicate requests create no additional event or session-version change.
 
 ## Security and limits
 
 - Responses use `Cache-Control: no-store`, including authentication and authorization errors.
 - Only the documented account fields are selected. Password hashes, API credentials, token digests, session versions, pending email addresses and filesystem paths are excluded.
-- Authorization and metadata queries have a shared three-second context deadline and inherit request cancellation.
+- Read endpoints share a three-second context deadline. Status writes have ten seconds, including the metadata driver's five-second busy timeout; body reads use the same deadline. All operations inherit request cancellation.
 - Membership lookup failures deny access with **503** and `code: "admin_unavailable"`. Read failures return a generic **500**, without database error details.
-- This stage includes no suspension, activation, deletion, impersonation, tenant-data browsing, admin web interface or SDK admin module.
+- This API includes no deletion, impersonation, tenant-row browsing, admin web interface or SDK admin module.
 
 Use [OWASP's authorization guidance](https://cheatsheetseries.owasp.org/cheatsheets/Authorization_Cheat_Sheet.html) when extending the route group: deny access by default and check permissions on every request.

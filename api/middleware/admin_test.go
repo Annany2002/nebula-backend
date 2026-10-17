@@ -54,7 +54,7 @@ func TestAdminReadContextInheritsCancellationAndSetsBoundedDeadline(t *testing.T
 	parent, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	router := gin.New()
-	router.Use(AdminReadContext())
+	router.Use(AdminRequestContext())
 	router.GET("/", func(c *gin.Context) {
 		deadline, ok := c.Request.Context().Deadline()
 		require.True(t, ok)
