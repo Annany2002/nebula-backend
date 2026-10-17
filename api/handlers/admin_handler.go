@@ -14,11 +14,17 @@ import (
 	"github.com/Annany2002/nebula-backend/internal/storage"
 )
 
-// AdminHandler exposes metadata-only reads behind the platform administrator gate.
-type AdminHandler struct{ db *sql.DB }
+// AdminHandler exposes account management and bounded schema statistics behind the admin gate.
+type AdminHandler struct {
+	db          *sql.DB
+	directory   string
+	statsPermit chan struct{}
+}
 
 // NewAdminHandler shares the existing metadata connection pool.
-func NewAdminHandler(db *sql.DB) *AdminHandler { return &AdminHandler{db: db} }
+func NewAdminHandler(db *sql.DB, directory string) *AdminHandler {
+	return &AdminHandler{db: db, directory: directory, statsPermit: make(chan struct{}, 1)}
+}
 
 // ListUsers returns a bounded page with no credential-bearing account fields.
 func (h *AdminHandler) ListUsers(c *gin.Context) {
@@ -49,13 +55,21 @@ func (h *AdminHandler) GetUser(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"user": user})
 }
 
-// Stats reports registered users and databases; tenant table counts are not scanned.
+// Stats serializes bounded schema inspections so admin traffic cannot exhaust file handles.
 func (h *AdminHandler) Stats(c *gin.Context) {
 	if c.Request.URL.RawQuery != "" {
 		adminFailure(c, storage.ErrInvalidAdminPage)
 		return
 	}
-	stats, err := storage.GetPlatformStats(c.Request.Context(), h.db)
+	select {
+	case h.statsPermit <- struct{}{}:
+		defer func() { <-h.statsPermit }()
+	default:
+		c.Header("Retry-After", "1")
+		c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "Platform statistics are busy", "code": "admin_stats_busy"})
+		return
+	}
+	stats, err := storage.GetPlatformStats(c.Request.Context(), h.db, h.directory)
 	if err != nil {
 		adminFailure(c, err)
 		return
@@ -94,6 +108,12 @@ func adminPagination(raw string) (int, int, error) {
 func adminFailure(c *gin.Context, err error) {
 	status, code, message := http.StatusInternalServerError, "admin_unavailable", "Administrator data unavailable"
 	switch {
+	case errors.Is(err, storage.ErrAdminRequired):
+		status, code, message = http.StatusForbidden, "admin_required", "Active platform administrator access required"
+	case errors.Is(err, storage.ErrAdminProtected):
+		status, code, message = http.StatusConflict, "admin_account_protected", "Revoke administrator membership before suspending this account"
+	case errors.Is(err, storage.ErrAdminSessionRevoked):
+		status, code, message = http.StatusUnauthorized, "session_revoked", "Sign in again to continue"
 	case errors.Is(err, storage.ErrInvalidAdminPage):
 		status, code, message = http.StatusBadRequest, "invalid_admin_query", "Use only limit (1-100) and offset (0-1000000) on the users list"
 	case errors.Is(err, storage.ErrUserNotFound):

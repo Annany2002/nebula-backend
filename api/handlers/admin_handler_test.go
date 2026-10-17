@@ -92,7 +92,7 @@ func TestAdminReadContractsAndPagination(t *testing.T) {
 	require.Contains(t, out.Body.String(), `"users":[]`)
 	out = f.request("GET", "/api/v1/admin/stats", "Bearer "+f.token, "")
 	require.Equal(t, 200, out.Code)
-	require.JSONEq(t, `{"stats":{"total_users":2,"total_databases":1}}`, out.Body.String())
+	require.JSONEq(t, `{"stats":{"total_users":2,"total_databases":1,"total_tables":null,"databases_counted":0,"databases_unavailable":1}}`, out.Body.String())
 	require.NoFileExists(t, filepath.Join(f.cfg.MetadataDbDir, "unopened.db"))
 	out = f.request("GET", "/api/v1/databases/unopened", "Bearer "+f.token, "")
 	require.Equal(t, 404, out.Code, "Admin membership must not widen ordinary tenant access")
@@ -139,8 +139,8 @@ func assertAdminSafeFields(t *testing.T, body []byte, list bool) {
 		users = []map[string]any{result.User}
 	}
 	for _, user := range users {
-		require.Len(t, user, 8)
-		for _, key := range []string{"user_id", "username", "email", "created_at", "role", "database_count", "email_verified", "verification_required"} {
+		require.Len(t, user, 9)
+		for _, key := range []string{"user_id", "username", "email", "created_at", "role", "database_count", "email_verified", "verification_required", "status"} {
 			require.Contains(t, user, key)
 		}
 	}

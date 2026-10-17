@@ -78,6 +78,7 @@ func CreateUnverifiedUser(ctx context.Context, db *sql.DB, id, username, email, 
 
 // EmailVerificationStatus preserves access for legacy accounts without claiming verification.
 type EmailVerificationStatus struct {
+	Suspended      bool   `json:"-"`
 	SessionVersion int    `json:"-"`
 	Verified       bool   `json:"email_verified"`
 	Required       bool   `json:"verification_required"`
@@ -86,8 +87,16 @@ type EmailVerificationStatus struct {
 
 // GetEmailVerificationStatus checks the current address, so changing it cannot carry old proof.
 func GetEmailVerificationStatus(ctx context.Context, db *sql.DB, id string) (EmailVerificationStatus, error) {
+	return readEmailVerificationStatus(ctx, db, id)
+}
+
+type accountStatusReader interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}
+
+func readEmailVerificationStatus(ctx context.Context, db accountStatusReader, id string) (EmailVerificationStatus, error) {
 	var result EmailVerificationStatus
-	err := db.QueryRowContext(ctx, `SELECT COALESCE(v.verified_email=u.email,0),COALESCE(v.required,0),COALESCE(v.pending_email,''),COALESCE(v.session_version,0) FROM users u LEFT JOIN account_email_verifications v ON v.user_id=u.user_id WHERE u.user_id=?`, id).Scan(&result.Verified, &result.Required, &result.PendingEmail, &result.SessionVersion)
+	err := db.QueryRowContext(ctx, `SELECT COALESCE(v.verified_email=u.email,0),COALESCE(v.required,0),COALESCE(v.pending_email,''),COALESCE(v.session_version,0),EXISTS(SELECT 1 FROM account_suspensions s WHERE s.user_id=u.user_id) FROM users u LEFT JOIN account_email_verifications v ON v.user_id=u.user_id WHERE u.user_id=?`, id).Scan(&result.Verified, &result.Required, &result.PendingEmail, &result.SessionVersion, &result.Suspended)
 	if errors.Is(err, sql.ErrNoRows) {
 		err = ErrUserNotFound
 	}

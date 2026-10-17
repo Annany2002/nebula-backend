@@ -15,8 +15,8 @@ import (
 	"github.com/Annany2002/nebula-backend/internal/storage"
 )
 
-// RequireVerifiedEmail checks durable account state for both JWT and API-key authentication.
-func RequireVerifiedEmail(db *sql.DB) gin.HandlerFunc {
+// RequireAccountAccess checks suspension, verification and sessions for JWTs and API keys.
+func RequireAccountAccess(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.MustGet("userId").(string)
 		status, err := storage.GetEmailVerificationStatus(c.Request.Context(), db, id)
@@ -30,6 +30,10 @@ func RequireVerifiedEmail(db *sql.DB) gin.HandlerFunc {
 				code = http.StatusUnauthorized
 			}
 			c.AbortWithStatusJSON(code, gin.H{"error": "Account authentication is unavailable", "code": "account_unavailable"})
+			return
+		}
+		if status.Suspended {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "This account is suspended", "code": "account_suspended"})
 			return
 		}
 		if status.Required && !status.Verified {

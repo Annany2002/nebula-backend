@@ -68,7 +68,7 @@ func SetupRouterWithEmailSender(metaDB *sql.DB, cfg *config.Config, sender email
 	recordHandler := handlers.NewRecordHandler(metaDB, cfg)
 	tableHandler := handlers.NewTableHandler(metaDB, cfg)
 	backupHandler := handlers.NewBackupHandler(metaDB, cfg.MetadataDbDir)
-	adminHandler := handlers.NewAdminHandler(metaDB)
+	adminHandler := handlers.NewAdminHandler(metaDB, cfg.MetadataDbDir)
 
 	// --- Public Routes ---
 	router.GET("/ping", func(c *gin.Context) { c.String(200, "pong") })
@@ -87,7 +87,7 @@ func SetupRouterWithEmailSender(metaDB *sql.DB, cfg *config.Config, sender email
 	// Example: Account management, API Key generation
 	accountRoutes := router.Group("/api/v1/account")
 	accountRoutes.Use(middleware.AuthMiddleware(cfg))
-	accountRoutes.Use(middleware.RequireVerifiedEmail(metaDB))
+	accountRoutes.Use(middleware.RequireAccountAccess(metaDB))
 	{
 		// User Profile Management
 		accountRoutes.GET("/user/me", authHandler.GetCurrentUser)
@@ -100,17 +100,19 @@ func SetupRouterWithEmailSender(metaDB *sql.DB, cfg *config.Config, sender email
 	}
 
 	adminRoutes := router.Group("/api/v1/admin")
-	adminRoutes.Use(middleware.AdminReadContext(), middleware.AuthMiddleware(cfg), middleware.RequireVerifiedEmail(metaDB), middleware.RequirePlatformAdmin(metaDB))
+	adminRoutes.Use(middleware.AdminRequestContext(), middleware.AuthMiddleware(cfg), middleware.RequireAccountAccess(metaDB), middleware.RequirePlatformAdmin(metaDB))
 	adminRoutes.GET("/users", adminHandler.ListUsers)
 	adminRoutes.GET("/users/:user_id", adminHandler.GetUser)
 	adminRoutes.GET("/stats", adminHandler.Stats)
+	adminRoutes.PUT("/users/:user_id/suspend", adminHandler.Suspend)
+	adminRoutes.PUT("/users/:user_id/activate", adminHandler.Activate)
 
 	// --- Protected Routes ---
 	apiRoutes := router.Group("/api/v1")
 
 	// Apply Combined Auth Middleware
 	apiRoutes.Use(middleware.CombinedAuthMiddleware(metaDB, cfg))
-	apiRoutes.Use(middleware.RequireVerifiedEmail(metaDB))
+	apiRoutes.Use(middleware.RequireAccountAccess(metaDB))
 	{ /* Routes using dbHandler and recordHandler */
 
 		// health route to check for protected route health
