@@ -1,55 +1,39 @@
 ---
 title: Configuration
-description: "Environment variables and settings"
+description: "Server settings, account email and feature rollout"
 ---
 
 # Configuration
 
-Nebula is configured via environment variables. Create a `.env` file or set them directly in your environment.
+Copy `.env.example` for local development or supply settings through the process environment. The configuration loader reads `.env` outside `APP_ENV=production`. Keep credentials and runtime data out of source control.
 
-## Environment Variables
+## Core settings
 
-### Required
+| Variable                  | Default                       | Purpose                                           |
+| ------------------------- | ----------------------------- | ------------------------------------------------- |
+| `APP_ENV`                 | Unset                         | Set to `production` for production configuration  |
+| `SERVER_PORT`             | `8080`; `8085` in production  | HTTP listen port, from 1 to 65535                 |
+| `JWT_SECRET`              | Required                      | Strong, unique JWT signing secret                 |
+| `JWT_EXPIRATION_HOURS`    | `24`                          | Positive JWT lifetime in hours                    |
+| `DATABASE_DIRECTORY`      | `data`                        | Metadata, tenant databases and retained snapshots |
+| `DATABASE_DIRECTORY_FILE` | `metadata.db`                 | Metadata database filename                        |
+| `ALLOWED_ORIGINS`         | All origins when empty or `*` | Space-separated allowed frontend origins          |
 
-<ParamField path="JWT_SECRET" required>
-  **Critical for security.** A strong, unique secret for signing JWT tokens.
-  
-  ```bash
-  JWT_SECRET=your-super-secret-key-minimum-32-characters
-  ```
-  
-  <Warning>
-    Use a cryptographically secure random string. Never commit this to version control.
-  </Warning>
-</ParamField>
+Generate a signing secret, then store it in your environment or deployment secrets:
 
-### Server
+```bash
+openssl rand -base64 32
+```
 
-<ParamField path="SERVER_PORT" default="8080">
-  Port the server listens on.
-  
-  ```bash
-  SERVER_PORT=8080
-  ```
-</ParamField>
+### Account email and password recovery
 
-### Authentication
+Email verification is opt-in. `EMAIL_VERIFICATION_ENABLED=false` preserves the existing registration flow. Password recovery has a separate `PASSWORD_RESET_ENABLED` flag, also disabled by default. SMTP credentials are required when either feature is enabled; neither feature requires them when both flags are false. Enabling either feature validates every required mail setting at startup; insecure or incomplete configuration prevents the server from starting.
 
-<ParamField path="JWT_EXPIRATION_HOURS" default="24">
-  How long JWT tokens remain valid (in hours).
-  
-  ```bash
-  JWT_EXPIRATION_HOURS=24
-  ```
-</ParamField>
-
-### Email Verification
-
-Email verification is opt-in. `EMAIL_VERIFICATION_ENABLED=false` preserves the existing registration flow and requires no SMTP credentials. Enabling it validates every required mail setting at startup; insecure or incomplete configuration prevents the server from starting.
-
-| Variable                         | Default    | When verification is enabled                                                                                                   |
+| Variable                         | Default    | Purpose and requirements                                                                                                       |
 | -------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------ |
 | `EMAIL_VERIFICATION_ENABLED`     | `false`    | Set to `true` after completing the rollout below                                                                               |
+| `PASSWORD_RESET_ENABLED`         | `false`    | Enable reset requests and token consumption independently of signup verification                                               |
+| `PASSWORD_RESET_TTL_MINUTES`     | `30`       | Integer from 5 to 120; reset-link lifetime                                                                                     |
 | `APP_PUBLIC_URL`                 | None       | Frontend HTTPS origin; no path, query, fragment, or embedded credentials. HTTP allowed only for `localhost` and `127.0.0.1`    |
 | `EMAIL_VERIFICATION_TTL_MINUTES` | `30`       | Integer from 5 to 120                                                                                                          |
 | `SMTP_HOST`                      | None       | SMTP server hostname                                                                                                           |
@@ -85,17 +69,23 @@ SMTP authentication is sent only over TLS with verified certificates. Plaintext 
 
 Verification requirements, token hashes, session versions, and send limits persist in the metadata database. Turning delivery off does not unlock already restricted accounts or bypass confirmation for their address changes; existing valid links can still be confirmed. Preserve the metadata database during rollout and rollback.
 
-Resend work uses four bounded in-process workers rather than a durable queue. A successful acknowledgement is not a delivery guarantee; clients can retry after interrupted delivery. Signup and resend share 10 requests per client IP per 15 minutes, and account sending is limited to five requests per hour with a 60-second cooldown. In the existing tunnel deployment, client addresses are accepted from `CF-Connecting-IP` only when the connection comes from a loopback Cloudflare connector; other proxy topologies share the proxy's request budget unless adapted explicitly.
+Resend work uses four bounded in-process workers rather than a durable queue. A successful acknowledgement is not a delivery guarantee; clients can retry after interrupted delivery. Signup and resend share 10 requests per client IP per 15 minutes, and enabled recovery routes share that public budget. Account sending across verification and recovery is limited to five requests per hour with a 60-second cooldown. In the existing tunnel deployment, client addresses are accepted from `CF-Connecting-IP` only when the connection comes from a loopback Cloudflare connector; other proxy topologies share the proxy's request budget unless adapted explicitly.
+
+### Password recovery rollout
+
+Deploy the backend endpoints and frontend `/forgot-password` and `/reset-password` routes before setting `PASSWORD_RESET_ENABLED=true`. Configure the same validated SMTP transport and `APP_PUBLIC_URL` used by verification. Recovery can run with `EMAIL_VERIFICATION_ENABLED=false`; enabling recovery does not restrict new signups or claim verification for existing addresses.
+
+`PASSWORD_RESET_TTL_MINUTES` defaults to 30 and accepts 5–120. Turning recovery off disables both requests and consumption. Reset success revokes existing JWT sessions and pending email-change/verification links, while preserving database API keys and existing verification/suspension policy. Notification email is best effort after the commit. See [password recovery](/api-reference/password-recovery) for the canonical contract and uncertain-write handling.
+
+For local testing, `./scripts/dev-email.sh` enables both flags and captures mail in an isolated Mailpit inbox. No production credentials or domain are needed.
 
 ### CORS
 
-<ParamField path="ALLOWED_ORIGINS">
-  Space-separated list of allowed origins for CORS.
-  
-  ```bash
-  ALLOWED_ORIGINS=http://localhost:3000 http://localhost:5173 https://myapp.com
-  ```
-</ParamField>
+Set explicit frontend origins for public deployments. CORS is a browser policy, not authentication or a firewall.
+
+```bash
+ALLOWED_ORIGINS=http://localhost:3000 https://app.example.com
+```
 
 ## Example .env File
 
@@ -109,6 +99,8 @@ JWT_EXPIRATION_HOURS=24
 
 # Enable only after SMTP and the frontend verification flow are ready.
 EMAIL_VERIFICATION_ENABLED=false
+PASSWORD_RESET_ENABLED=false
+PASSWORD_RESET_TTL_MINUTES=30
 APP_PUBLIC_URL=http://localhost:3000
 EMAIL_VERIFICATION_TTL_MINUTES=30
 SMTP_HOST=
@@ -123,30 +115,12 @@ SMTP_CA_FILE=
 ALLOWED_ORIGINS=http://localhost:3000 http://localhost:5173
 ```
 
-## Setup Steps
+## Local setup and deployment
 
-<Steps>
-  <Step title="Copy example file">
-    ```bash
-    cp .env.example .env
-    ```
-  </Step>
-  
-  <Step title="Generate a secure JWT secret">
-    ```bash
-    # Using openssl
-    openssl rand -base64 32
-    
-    # Or using Python
-    python3 -c "import secrets; print(secrets.token_urlsafe(32))"
-    ```
-  </Step>
-  
-  <Step title="Edit .env with your values">
-    Update `JWT_SECRET` and `ALLOWED_ORIGINS` for your setup.
-  </Step>
-</Steps>
+1. Copy `.env.example` to `.env` for development.
+2. Set a unique `JWT_SECRET` and local `ALLOWED_ORIGINS`.
+3. Configure SMTP only when enabling account mail features.
 
-<Note>
-  The `.env` file should already be in `.gitignore`. Never commit secrets to version control.
-</Note>
+For isolated email testing, run `./scripts/dev-email.sh`, or `./dev.sh --email` in the three-repository workspace. The runner captures mail at `http://localhost:8025`, enables verification and recovery, and does not change normal local accounts, `.env` or system certificate trust.
+
+On the existing VPS, explicitly use `SERVER_PORT=8085`. Preserve metadata, tenant data, snapshots and environment files during deployment. Restart only the backend when preserving a running Cloudflare Quick Tunnel URL. See [deployment](/guides/deployment) for storage and process constraints.

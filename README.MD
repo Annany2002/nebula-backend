@@ -8,21 +8,21 @@ Open-source Backend-as-a-Service built with Go, Gin, and SQLite. Provision user 
 
 ## Features
 
-| Area             | Available today                                                                                                                                     |
-| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Database storage | One SQLite file per user database, a separate platform metadata database, WAL mode, and foreign-key enforcement                                     |
-| Authentication   | Account signup/login, optional SMTP email verification, confirmed email changes, bcrypt passwords, JWT sessions, and database-scoped API keys       |
-| API keys         | Generate, rotate, inspect prefix/creation metadata, and revoke; one active key per database, hashed at rest                                         |
-| Schemas          | Create tables with typed columns and foreign keys; add/rename/drop columns and rename tables, including transactional batches of schema alterations |
-| Records          | Create/read/update/delete records, column equality filters, pagination, sorting, and field selection                                                |
-| SQL              | Execute SQL and return columns, rows, affected-row counts, and execution time                                                                       |
-| Indexes          | Create standard/unique composite indexes over named columns and drop custom indexes, with SQLite/internal index protection                          |
-| Triggers         | Create validated BEFORE/AFTER table triggers for insert/update/delete events, optional conditions and update columns, and drop custom triggers      |
-| Inspection       | Table metadata, foreign-key diagrams, indexes, triggers, database size/record counts, and request analytics                                         |
-| Exports          | Consistent SQLite snapshot downloads and SQL dumps                                                                                                  |
-| SQLite import    | Restore a validated standalone snapshot into a new database, with owner JWT authentication, a 64 MiB limit and conflict protection                  |
-| Managed backups  | Save owner-only verified snapshots, inspect history, download/delete them, and restore into a new database                                          |
-| HTTP middleware  | Authentication, configurable CORS, IP rate limiting, telemetry, and error handling                                                                  |
+| Area             | Available today                                                                                                                                                     |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Database storage | One SQLite file per user database, a separate platform metadata database, WAL mode, and foreign-key enforcement                                                     |
+| Authentication   | Account signup/login, optional SMTP email verification and password recovery, confirmed email changes, bcrypt passwords, JWT sessions, and database-scoped API keys |
+| API keys         | Generate, rotate, inspect prefix/creation metadata, and revoke; one active key per database, hashed at rest                                                         |
+| Schemas          | Create tables with typed columns and foreign keys; add/rename/drop columns and rename tables, including transactional batches of schema alterations                 |
+| Records          | Create/read/update/delete records, column equality filters, pagination, sorting, and field selection                                                                |
+| SQL              | Execute SQL and return columns, rows, affected-row counts, and execution time                                                                                       |
+| Indexes          | Create standard/unique composite indexes over named columns and drop custom indexes, with SQLite/internal index protection                                          |
+| Triggers         | Create validated BEFORE/AFTER table triggers for insert/update/delete events, optional conditions and update columns, and drop custom triggers                      |
+| Inspection       | Table metadata, foreign-key diagrams, indexes, triggers, database size/record counts, and request analytics                                                         |
+| Exports          | Consistent SQLite snapshot downloads and SQL dumps                                                                                                                  |
+| SQLite import    | Restore a validated standalone snapshot into a new database, with owner JWT authentication, a 64 MiB limit and conflict protection                                  |
+| Managed backups  | Save owner-only verified snapshots, inspect history, download/delete them, and restore into a new database                                                          |
+| HTTP middleware  | Authentication, configurable CORS, IP rate limiting, telemetry, and error handling                                                                                  |
 
 Schema alteration is available, but a versioned application migration history is not. SQLite import and managed backup restore create new databases; SQL-dump import, scheduled backups and overwriting existing databases are not implemented. API keys are scoped to a database, without separate read-only or per-table permissions.
 
@@ -55,7 +55,7 @@ Run the frontend separately using the [frontend setup instructions](https://gith
 
 ### Local email testing
 
-Run `./scripts/dev-email.sh` to start the backend with email verification enabled and a local [Mailpit](https://mailpit.axllent.org/) inbox at http://localhost:8025. Start the frontend separately on port 3000 with `VITE_BACKEND_URL=http://localhost:8080`. In the three-repository workspace, `./dev.sh --email` starts all three services together.
+Run `./scripts/dev-email.sh` to start the backend with email verification and password recovery enabled and a local [Mailpit](https://mailpit.axllent.org/) inbox at http://localhost:8025. Start the frontend separately on port 3000 with `VITE_BACKEND_URL=http://localhost:8080`. In the three-repository workspace, `./dev.sh --email` starts all three services together.
 
 The first run downloads pinned Mailpit v1.31.5 for macOS/Linux on ARM64/x86_64 and verifies its SHA-256 checksum. It requires curl, OpenSSL, tar, shasum or sha256sum, plus the usual Go/C toolchain. Docker and provider credentials are not required.
 
@@ -93,7 +93,7 @@ The [documentation source](docs/introduction.mdx) lives in `docs/`. API routes a
 
 Platform administrator JWTs can search and filter accounts by role or status, inspect safe user details and platform user/database/table counts, read suspension/activation audit history, and suspend or activate accounts through `/api/v1/admin`. No account is promoted automatically. Membership is checked on every request; API keys cannot access admin routes. Responses exclude credentials and tenant file paths. Table counts inspect schemas read-only and explicitly report unavailable databases.
 
-Trusted server operators can grant or revoke membership using `go run ./cmd/admin --metadata-db ./data/metadata.db --user-id '<account-id>' grant` (or `revoke`) after starting the updated backend once to initialize its schema. Suspension blocks login, existing JWTs and API keys without deleting data; activation requires a fresh JWT login and preserves email-verification requirements. Account transitions are audited atomically and admin accounts are protected against suspension. See the [administration API and provisioning guide](docs/api-reference/administration.mdx) for contracts and limits. There is no admin web interface.
+Trusted server operators can grant or revoke membership using `go run ./cmd/admin --metadata-db ./data/metadata.db --user-id '<account-id>' grant` (or `revoke`) after starting the updated backend once to initialize its schema. Suspension blocks login, existing JWTs and API keys without deleting data; activation requires a fresh JWT login and preserves email-verification requirements. Account transitions are audited atomically and admin accounts are protected against suspension. See the [administration API and provisioning guide](docs/api-reference/administration.mdx) for contracts and limits. The [Nebula frontend](https://github.com/Annany2002/nebula-frontend) provides the administration interface at `/admin/users` and `/admin/audit` for explicitly provisioned administrators.
 
 ## Authentication
 
@@ -108,6 +108,8 @@ Signup requires a username of at least six characters and a password of at least
 Email verification is disabled by default. When `EMAIL_VERIFICATION_ENABLED=true`, new accounts must confirm an emailed, expiring link before login or protected API access. Existing accounts retain access and report their actual verification status. Email changes require the current password, notify the old address, and take effect only after confirmation of the new address; confirmation revokes previous JWT sessions while preserving database API keys.
 
 Configure `APP_PUBLIC_URL` and the `SMTP_*` variables in [.env.example](.env.example), then deploy the frontend `/verify-email` flow before enabling verification. Enabling with incomplete or insecure mail configuration prevents startup. See the [authentication contract](docs/api-reference/authentication.mdx), [profile contract](docs/api-reference/user-profile.mdx), and [configuration guide](docs/guides/configuration.mdx) for delivery limits, failure recovery, and rollout details. Verification proves access to a mailbox; disposable-address and multiple-account restrictions are separate controls.
+
+Password recovery is separately enabled with `PASSWORD_RESET_ENABLED=true` after SMTP and the frontend `/forgot-password` and `/reset-password` flows are ready. `POST /auth/forgot-password` returns a generic acknowledgement; `POST /auth/reset-password` replaces the password using an expiring single-use token. Successful resets revoke JWT sessions and pending account-email links without bypassing verification or suspension. See the [password recovery contract](docs/api-reference/password-recovery.mdx) for request bodies, limits, failure handling and local testing. No mail features require credentials while both enable flags are false.
 
 ```bash
 curl -X POST http://localhost:8080/auth/signup \

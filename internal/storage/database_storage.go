@@ -65,6 +65,10 @@ func ConnectMetadataDB(cfg *config.Config) (*sql.DB, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("ensure platform admin schema: %w", err)
 	}
+	if err = ensurePasswordResetTables(db); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
 	if err = ensureEmailVerificationTables(db); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("ensure account verification tables: %w", err)

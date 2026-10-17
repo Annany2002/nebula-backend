@@ -5,7 +5,7 @@ description: "User registration and login endpoints"
 
 # Authentication
 
-Register users and obtain JWT tokens for API access.
+Register users, confirm email addresses and obtain JWT sessions for API access. For forgotten passwords, see [password recovery](/api-reference/password-recovery).
 
 ## Sign Up
 
@@ -48,6 +48,7 @@ curl -X POST http://localhost:8080/auth/signup \
   "error": "Email already exists"
 }
 ```
+
 </ResponseExample>
 
 ---
@@ -109,6 +110,7 @@ curl -X POST http://localhost:8080/auth/login \
   "error": "Invalid credentials"
 }
 ```
+
 </ResponseExample>
 
 ---
@@ -130,7 +132,7 @@ curl -X POST http://localhost:8080/auth/verify-email \
 Successful verification returns `200`:
 
 ```json
-{"message":"Email verified successfully. Sign in to continue."}
+{ "message": "Email verified successfully. Sign in to continue." }
 ```
 
 Tokens are single-use and expire after 30 minutes by default. Malformed, expired, previously used, and superseded email-change tokens return `400` with `code: "invalid_verification_token"`. An email-change target claimed by another account returns `409` with `code: "email_conflict"`; the current email remains unchanged. Storage failures return `500` with `code: "verification_unavailable"`.
@@ -138,7 +140,10 @@ Tokens are single-use and expire after 30 minutes by default. Malformed, expired
 The endpoint issues no JWT. Sign in after confirmation. It can finish previously issued tokens even if email delivery is subsequently disabled.
 
 <Note>
-  Links use `APP_PUBLIC_URL/verify-email#token=...`. The frontend must read and remove the fragment, then submit the token in a POST body. Do not move tokens into URL queries, logs, or analytics. Deploy this frontend flow before enabling verification.
+  Links use `APP_PUBLIC_URL/verify-email#token=...`. The frontend must read and
+  remove the fragment, then submit the token in a POST body. Do not move tokens
+  into URL queries, logs, or analytics. Deploy this frontend flow before
+  enabling verification.
 </Note>
 
 ## Resend Verification
@@ -154,7 +159,7 @@ curl -X POST http://localhost:8080/auth/resend-verification \
 Well-formed known and unknown addresses receive the same `202` response when worker capacity is available:
 
 ```json
-{"message":"If this address is eligible, a verification email will be sent."}
+{ "message": "If this address is eligible, a verification email will be sent." }
 ```
 
 Delivery is attempted asynchronously only for eligible unverified addresses. This acknowledgement does not guarantee delivery. Work is bounded to four concurrent requests and is not a durable mail queue; request again if a restart interrupts delivery. Verified and unknown addresses receive no email.
@@ -163,7 +168,7 @@ When verification delivery is disabled, the endpoint returns `503` with `code: "
 
 ## Limits and Address Policy
 
-With verification enabled, signup and resend share a persistent limit of 10 requests per client IP in 15 minutes. Exceeding it returns `429` and `Retry-After: 900`. Account email delivery has a 60-second cooldown and a maximum of five requests per hour; both survive server restarts. Public resend responses do not expose account-specific limits. Existing global IP limits also apply.
+With verification enabled, signup and resend share a persistent limit of 10 requests per client IP in 15 minutes. Enabled password-recovery routes use the same budget. Verification and recovery delivery share the account send budget below. Exceeding it returns `429` and `Retry-After: 900`. Account email delivery has a 60-second cooldown and a maximum of five requests per hour; both survive server restarts. Public resend responses do not expose account-specific limits. Existing global IP limits also apply.
 
 Verification and resend require `application/json`, accept one JSON object with no unknown fields, and limit request bodies to 4 KiB. Unsupported media types return `415`, oversized bodies return `413`, and invalid payloads return `400`.
 
@@ -181,5 +186,6 @@ curl http://localhost:8080/api/v1/databases \
 ```
 
 <Note>
-  JWT tokens expire based on the `JWT_EXPIRATION_HOURS` configuration (default: 24 hours).
+  JWT tokens expire based on the `JWT_EXPIRATION_HOURS` configuration (default:
+  24 hours).
 </Note>

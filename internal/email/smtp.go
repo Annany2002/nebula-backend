@@ -16,7 +16,7 @@ import (
 	"github.com/Annany2002/nebula-backend/config"
 )
 
-// Sender is the shared boundary for verification and future account recovery emails.
+// Sender is the shared boundary for verification and account recovery emails.
 type Sender interface {
 	Send(context.Context, string, string, string) error
 }

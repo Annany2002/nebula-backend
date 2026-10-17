@@ -144,6 +144,15 @@ func AllowEmailRequest(ctx context.Context, db *sql.DB, key string, now time.Tim
 
 // ReserveEmailToken stores only a digest and reserves the persistent per-account send budget.
 func ReserveEmailToken(ctx context.Context, db *sql.DB, id, source, target, purpose, digest string, now, expires time.Time) error {
+	return reserveEmailToken(ctx, db, id, source, target, purpose, digest, now, expires, nil)
+}
+
+// ReserveEmailTokenForSession prevents an in-flight email change from surviving a password reset.
+func ReserveEmailTokenForSession(ctx context.Context, db *sql.DB, id, source, target, purpose, digest string, now, expires time.Time, version int) error {
+	return reserveEmailToken(ctx, db, id, source, target, purpose, digest, now, expires, &version)
+}
+
+func reserveEmailToken(ctx context.Context, db *sql.DB, id, source, target, purpose, digest string, now, expires time.Time, expectedVersion *int) error {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -157,29 +166,17 @@ func ReserveEmailToken(ctx context.Context, db *sql.DB, id, source, target, purp
 	if err := tx.QueryRowContext(ctx, `SELECT email FROM users WHERE user_id=?`, id).Scan(&current); err != nil {
 		return err
 	}
-	if current != source {
+	status, err := readEmailVerificationStatus(ctx, tx, id)
+	if err != nil {
+		return err
+	}
+	if current != source || (expectedVersion != nil && status.SessionVersion != *expectedVersion) || (purpose == "change_email" && status.Suspended) {
 		return ErrVerificationToken
 	}
+	if err := reserveAccountMailBudget(ctx, tx, id, now); err != nil {
+		return err
+	}
 	stamp := now.Unix()
-	result, err := tx.ExecContext(ctx, `UPDATE email_send_limits SET last_requested_at=?,window_started_at=CASE WHEN window_started_at<=? THEN ? ELSE window_started_at END,request_count=CASE WHEN window_started_at<=? THEN 1 ELSE request_count+1 END WHERE user_id=? AND last_requested_at<=? AND (window_started_at<=? OR request_count<5)`, stamp, stamp-3600, stamp, stamp-3600, id, stamp-60, stamp-3600)
-	if err != nil {
-		return err
-	}
-	affected, err := result.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if affected != 1 {
-		var last, window, requests int64
-		if err := tx.QueryRowContext(ctx, `SELECT last_requested_at,window_started_at,request_count FROM email_send_limits WHERE user_id=?`, id).Scan(&last, &window, &requests); err != nil {
-			return err
-		}
-		retry := max(int64(1), last+60-stamp)
-		if requests >= 5 {
-			retry = max(retry, window+3600-stamp)
-		}
-		return &VerificationRateLimitError{RetryAfterSeconds: retry}
-	}
 	if _, err = tx.ExecContext(ctx, `DELETE FROM account_email_tokens WHERE expires_at<=?`, stamp); err != nil {
 		return err
 	}
@@ -273,4 +270,29 @@ func userWriteError(err error) error {
 		return ErrEmailExists
 	}
 	return fmt.Errorf("account write failed: %w", err)
+}
+
+// reserveAccountMailBudget runs under a transaction that already holds the SQLite writer lock.
+func reserveAccountMailBudget(ctx context.Context, tx *sql.Tx, id string, now time.Time) error {
+	stamp := now.Unix()
+	result, err := tx.ExecContext(ctx, `UPDATE email_send_limits SET last_requested_at=?,window_started_at=CASE WHEN window_started_at<=? THEN ? ELSE window_started_at END,request_count=CASE WHEN window_started_at<=? THEN 1 ELSE request_count+1 END WHERE user_id=? AND last_requested_at<=? AND (window_started_at<=? OR request_count<5)`, stamp, stamp-3600, stamp, stamp-3600, id, stamp-60, stamp-3600)
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected != 1 {
+		var last, window, requests int64
+		if err := tx.QueryRowContext(ctx, `SELECT last_requested_at,window_started_at,request_count FROM email_send_limits WHERE user_id=?`, id).Scan(&last, &window, &requests); err != nil {
+			return err
+		}
+		retry := max(int64(1), last+60-stamp)
+		if requests >= 5 {
+			retry = max(retry, window+3600-stamp)
+		}
+		return &VerificationRateLimitError{RetryAfterSeconds: retry}
+	}
+	return nil
 }

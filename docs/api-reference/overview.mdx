@@ -36,97 +36,102 @@ Nebula supports two authentication methods:
 
 ### Public Endpoints
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/ping` | Health check (returns "pong") |
-| GET | `/health` | Server health status |
-| POST | `/auth/signup` | Register new user |
-| POST | `/auth/login` | Login and get JWT |
-| POST | `/auth/verify-email` | Confirm an expiring email token |
-| POST | `/auth/resend-verification` | Request another verification email |
+| Method | Endpoint                    | Description                                                        |
+| ------ | --------------------------- | ------------------------------------------------------------------ |
+| GET    | `/ping`                     | Health check (returns "pong")                                      |
+| GET    | `/health`                   | Server health status                                               |
+| POST   | `/auth/signup`              | Register new user                                                  |
+| POST   | `/auth/login`               | Login and get JWT                                                  |
+| POST   | `/auth/verify-email`        | Confirm an expiring email token                                    |
+| POST   | `/auth/resend-verification` | Request another verification email                                 |
+| POST   | `/auth/forgot-password`     | [Request a password reset email](/api-reference/password-recovery) |
+| POST   | `/auth/reset-password`      | [Replace a forgotten password](/api-reference/password-recovery)   |
 
 ### Protected Endpoints (require authentication)
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/v1/health` | Auth health check |
-| GET | `/api/v1/user/:user_id` | Get user details |
+| Method | Endpoint                | Description       |
+| ------ | ----------------------- | ----------------- |
+| GET    | `/api/v1/health`        | Auth health check |
+| GET    | `/api/v1/user/:user_id` | Get user details  |
 
 ### Platform Administration (admin JWT only)
 
-| Method | Endpoint | Description |
-| --- | --- | --- |
-| GET | `/api/v1/admin/users` | Search and filter paginated safe account metadata |
-| GET | `/api/v1/admin/audit-events` | Filtered suspension and activation history |
-| GET | `/api/v1/admin/users/:user_id` | Account details |
-| GET | `/api/v1/admin/stats` | User, database and table counts with completeness information |
-| PUT | `/api/v1/admin/users/:user_id/suspend` | Suspend an account and revoke JWT sessions |
-| PUT | `/api/v1/admin/users/:user_id/activate` | Restore access while preserving verification requirements |
+| Method | Endpoint                                | Description                                                   |
+| ------ | --------------------------------------- | ------------------------------------------------------------- |
+| GET    | `/api/v1/admin/users`                   | Search and filter paginated safe account metadata             |
+| GET    | `/api/v1/admin/audit-events`            | Filtered suspension and activation history                    |
+| GET    | `/api/v1/admin/users/:user_id`          | Account details                                               |
+| GET    | `/api/v1/admin/stats`                   | User, database and table counts with completeness information |
+| PUT    | `/api/v1/admin/users/:user_id/suspend`  | Suspend an account and revoke JWT sessions                    |
+| PUT    | `/api/v1/admin/users/:user_id/activate` | Restore access while preserving verification requirements     |
 
 These routes require explicit platform administrator membership, checked on every request. See [administration and operator provisioning](/api-reference/administration).
 
 ### Database Management
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/v1/databases` | List databases |
-| POST | `/api/v1/databases` | Create database |
-| GET | `/api/v1/databases/:db_name` | Get database details |
-| DELETE | `/api/v1/databases/:db_name` | Delete database |
+| Method | Endpoint                          | Description                                                   |
+| ------ | --------------------------------- | ------------------------------------------------------------- |
+| GET    | `/api/v1/databases`               | List databases                                                |
+| POST   | `/api/v1/databases`               | Create database                                               |
+| GET    | `/api/v1/databases/:db_name`      | Get database details                                          |
+| DELETE | `/api/v1/databases/:db_name`      | Delete database                                               |
+| POST   | `/api/v1/databases/import/sqlite` | [Import a standalone SQLite snapshot](/api-reference/imports) |
 
 Database listing, creation, and deletion require a JWT. Database details accept a JWT or a key scoped to that database.
 
 ### Account Profile (JWT only)
 
-| Method | Endpoint | Description |
-| --- | --- | --- |
-| GET | `/api/v1/account/user/me` | Get current profile |
-| PUT | `/api/v1/account/user/me` | Update current profile |
-| GET | `/api/v1/account/summary` | [Owned database, API key and ready backup counts](/api-reference/account-summary) |
+| Method | Endpoint                  | Description                                                                       |
+| ------ | ------------------------- | --------------------------------------------------------------------------------- |
+| GET    | `/api/v1/account/user/me` | Get current profile                                                               |
+| PUT    | `/api/v1/account/user/me` | Update current profile                                                            |
+| GET    | `/api/v1/account/summary` | [Owned database, API key and ready backup counts](/api-reference/account-summary) |
 
 ### API Key Management (JWT only)
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/v1/account/databases/:db_name/apikey` | Get API key info |
-| POST | `/api/v1/account/databases/:db_name/apikey` | Create API key |
-| DELETE | `/api/v1/account/databases/:db_name/apikey` | Delete API key |
+| Method | Endpoint                                    | Description      |
+| ------ | ------------------------------------------- | ---------------- |
+| GET    | `/api/v1/account/databases/:db_name/apikey` | Get API key info |
+| POST   | `/api/v1/account/databases/:db_name/apikey` | Create API key   |
+| DELETE | `/api/v1/account/databases/:db_name/apikey` | Delete API key   |
 
 ### Schema & Tables
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/v1/databases/:db_name/schema` | Create table schema |
-| GET | `/api/v1/databases/:db_name/tables/:table_name/schema` | Get schema |
-| GET | `/api/v1/databases/:db_name/tables` | List tables |
-| POST | `/api/v1/databases/:db_name/tables` | Create table |
-| POST | `/api/v1/databases/:db_name/tables/:table_name/alter` | Alter table |
-| DELETE | `/api/v1/databases/:db_name/tables/:table_name` | Delete table |
+| Method | Endpoint                                               | Description         |
+| ------ | ------------------------------------------------------ | ------------------- |
+| POST   | `/api/v1/databases/:db_name/schema`                    | Create table schema |
+| GET    | `/api/v1/databases/:db_name/tables/:table_name/schema` | Get schema          |
+| GET    | `/api/v1/databases/:db_name/tables`                    | List tables         |
+| POST   | `/api/v1/databases/:db_name/tables`                    | Create table        |
+| POST   | `/api/v1/databases/:db_name/tables/:table_name/alter`  | Alter table         |
+| DELETE | `/api/v1/databases/:db_name/tables/:table_name`        | Delete table        |
 
 ### Records (CRUD)
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/v1/databases/:db_name/tables/:table_name/records` | Create record |
-| GET | `/api/v1/databases/:db_name/tables/:table_name/records` | List records |
-| GET | `/api/v1/databases/:db_name/tables/:table_name/records/:record_id` | Get record |
-| PUT | `/api/v1/databases/:db_name/tables/:table_name/records/:record_id` | Update record |
+| Method | Endpoint                                                           | Description   |
+| ------ | ------------------------------------------------------------------ | ------------- |
+| POST   | `/api/v1/databases/:db_name/tables/:table_name/records`            | Create record |
+| GET    | `/api/v1/databases/:db_name/tables/:table_name/records`            | List records  |
+| GET    | `/api/v1/databases/:db_name/tables/:table_name/records/:record_id` | Get record    |
+| PUT    | `/api/v1/databases/:db_name/tables/:table_name/records/:record_id` | Update record |
 | DELETE | `/api/v1/databases/:db_name/tables/:table_name/records/:record_id` | Delete record |
 
 ### SQL, Inspection, and Exports
 
 These endpoints accept a JWT or a key scoped to the selected database.
 
-| Method | Endpoint | Reference |
-| --- | --- | --- |
-| POST | `/api/v1/databases/:db_name/sql` | [SQL execution](/api-reference/sql) |
-| GET | `/api/v1/databases/:db_name/analytics` | [Analytics](/api-reference/analytics) |
-| GET | `/api/v1/databases/:db_name/diagram` | [Schema diagram](/api-reference/diagram) |
-| GET | `/api/v1/databases/:db_name/objects` | [Database objects](/api-reference/objects) |
-| POST | `/api/v1/databases/:db_name/indexes` | [Create an index](/api-reference/objects#create-an-index) |
-| DELETE | `/api/v1/databases/:db_name/indexes/:index_name` | [Drop an index](/api-reference/objects#drop-an-index) |
-| GET | `/api/v1/databases/:db_name/export/sql` | [SQL dump](/api-reference/exports) |
-| GET | `/api/v1/databases/:db_name/export/sqlite` | [SQLite snapshot](/api-reference/exports) |
+| Method | Endpoint                                            | Reference                                                         |
+| ------ | --------------------------------------------------- | ----------------------------------------------------------------- |
+| POST   | `/api/v1/databases/:db_name/sql`                    | [SQL execution](/api-reference/sql)                               |
+| GET    | `/api/v1/databases/:db_name/analytics`              | [Analytics](/api-reference/analytics)                             |
+| GET    | `/api/v1/databases/:db_name/diagram`                | [Schema diagram](/api-reference/diagram)                          |
+| GET    | `/api/v1/databases/:db_name/objects`                | [Database objects](/api-reference/objects)                        |
+| POST   | `/api/v1/databases/:db_name/indexes`                | [Create an index](/api-reference/objects#create-an-index)         |
+| DELETE | `/api/v1/databases/:db_name/indexes/:index_name`    | [Drop an index](/api-reference/objects#drop-an-index)             |
+| POST   | `/api/v1/databases/:db_name/triggers`               | [Create a table trigger](/api-reference/objects#create-a-trigger) |
+| DELETE | `/api/v1/databases/:db_name/triggers/:trigger_name` | [Drop a custom trigger](/api-reference/objects#drop-a-trigger)    |
+| GET    | `/api/v1/databases/:db_name/export/sql`             | [SQL dump](/api-reference/exports)                                |
+| GET    | `/api/v1/databases/:db_name/export/sqlite`          | [SQLite snapshot](/api-reference/exports)                         |
 
 ### Managed backups (owner JWT only)
 
@@ -148,12 +153,12 @@ Most API errors return JSON in this format:
 
 Common status codes:
 
-| Code | Description |
-|------|-------------|
-| 400 | Bad Request - Invalid input |
-| 401 | Unauthorized - Missing/invalid auth |
-| 403 | Forbidden - Insufficient permissions |
-| 404 | Not Found - Resource doesn't exist |
-| 409 | Conflict - Resource already exists |
-| 429 | Too Many Requests - Rate limited |
-| 500 | Internal Server Error |
+| Code | Description                          |
+| ---- | ------------------------------------ |
+| 400  | Bad Request - Invalid input          |
+| 401  | Unauthorized - Missing/invalid auth  |
+| 403  | Forbidden - Insufficient permissions |
+| 404  | Not Found - Resource doesn't exist   |
+| 409  | Conflict - Resource already exists   |
+| 429  | Too Many Requests - Rate limited     |
+| 500  | Internal Server Error                |

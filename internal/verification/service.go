@@ -3,11 +3,7 @@ package verification
 
 import (
 	"context"
-	"crypto/rand"
-	"crypto/sha256"
 	"database/sql"
-	"encoding/base64"
-	"encoding/hex"
 	"errors"
 	"net/mail"
 	"net/url"
@@ -15,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Annany2002/nebula-backend/config"
+	"github.com/Annany2002/nebula-backend/internal/accounttoken"
 	"github.com/Annany2002/nebula-backend/internal/email"
 	"github.com/Annany2002/nebula-backend/internal/logger"
 	"github.com/Annany2002/nebula-backend/internal/storage"
@@ -74,19 +71,30 @@ func ValidateEmail(value string) bool {
 
 // Send issues an address-bound token. Failed mail keeps the account unverified and retryable.
 func (s *Service) Send(ctx context.Context, id, target string, change bool) error {
+	return s.send(ctx, id, target, change, nil)
+}
+
+// RequestChange binds password reauthentication to the version observed by its caller.
+func (s *Service) RequestChange(ctx context.Context, id, target string, version int) error {
+	return s.send(ctx, id, target, true, &version)
+}
+
+func (s *Service) send(ctx context.Context, id, target string, change bool, expectedVersion *int) error {
 	user, err := storage.FindUserByUserId(ctx, s.db, id)
 	if err != nil {
 		return err
 	}
+	if expectedVersion != nil && user.SessionVersion != *expectedVersion {
+		return storage.ErrVerificationToken
+	}
 	if !ValidateEmail(target) {
 		return errors.New("invalid email address")
 	}
-	bytes := make([]byte, 32)
-	if _, err = rand.Read(bytes); err != nil {
+	token, err := accounttoken.New()
+	if err != nil {
 		return errors.New("verification token generation failed")
 	}
-	token := base64.RawURLEncoding.EncodeToString(bytes)
-	digest := hashToken(token)
+	digest := accounttoken.Digest(token)
 	purpose := "verify_email"
 	if change {
 		purpose = "change_email"
@@ -96,7 +104,7 @@ func (s *Service) Send(ctx context.Context, id, target string, change bool) erro
 	if ttl == 0 {
 		ttl = 30 * time.Minute
 	}
-	if err := storage.ReserveEmailToken(ctx, s.db, id, user.Email, target, purpose, digest, now, now.Add(ttl)); err != nil {
+	if err := storage.ReserveEmailTokenForSession(ctx, s.db, id, user.Email, target, purpose, digest, now, now.Add(ttl), user.SessionVersion); err != nil {
 		return err
 	}
 	if change {
@@ -119,14 +127,8 @@ func (s *Service) Send(ctx context.Context, id, target string, change bool) erro
 
 // Verify atomically consumes a canonical single-use token; it never returns a login session.
 func (s *Service) Verify(ctx context.Context, token string) error {
-	bytes, err := base64.RawURLEncoding.DecodeString(token)
-	if err != nil || len(bytes) != 32 || base64.RawURLEncoding.EncodeToString(bytes) != token {
+	if !accounttoken.Valid(token) {
 		return storage.ErrVerificationToken
 	}
-	return storage.ConsumeEmailToken(ctx, s.db, hashToken(token), time.Now().UTC())
-}
-
-func hashToken(value string) string {
-	digest := sha256.Sum256([]byte(value))
-	return hex.EncodeToString(digest[:])
+	return storage.ConsumeEmailToken(ctx, s.db, accounttoken.Digest(token), time.Now().UTC())
 }
