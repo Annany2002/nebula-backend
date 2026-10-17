@@ -30,7 +30,9 @@ curl http://localhost:8080/api/v1/account/user/me \
   "userId": "abc123-def456-ghi789",
   "username": "myusername",
   "email": "user@example.com",
-  "createdAt": "2024-01-15T10:30:00Z"
+  "createdAt": "2024-01-15T10:30:00Z",
+  "email_verified": true,
+  "verification_required": true
 }
 ```
 
@@ -40,6 +42,8 @@ curl http://localhost:8080/api/v1/account/user/me \
 }
 ```
 </ResponseExample>
+
+`email_verified` describes proof of the current address. `verification_required` indicates whether verification is enforced for this account. Existing accounts retain access with both fields initially `false`. `pending_email` is present only while an address change awaits confirmation. These fields also appear in login and profile-update user responses.
 
 ---
 
@@ -54,11 +58,15 @@ Update the profile of the currently authenticated user.
 </ParamField>
 
 <ParamField body="email" type="string">
-  New email address (must be valid email format)
+  New plain ASCII mailbox address (maximum 254 bytes).
+</ParamField>
+
+<ParamField body="current_password" type="string">
+  Required for changing your address when email verification is enabled.
 </ParamField>
 
 <Note>
-  You can update either field independently. Only include the fields you want to change.
+  With email verification enabled, submit username updates and email changes separately. Email changes require your current password and confirmation of the new mailbox.
 </Note>
 
 <RequestExample>
@@ -76,17 +84,8 @@ curl -X PUT http://localhost:8080/api/v1/account/user/me \
   -H "Authorization: Bearer <your-jwt-token>" \
   -H "Content-Type: application/json" \
   -d '{
-    "email": "newemail@example.com"
-  }'
-```
-
-```bash cURL (Update both)
-curl -X PUT http://localhost:8080/api/v1/account/user/me \
-  -H "Authorization: Bearer <your-jwt-token>" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "username": "newusername",
-    "email": "newemail@example.com"
+    "email": "newemail@example.com",
+    "current_password": "<your-current-password>"
   }'
 ```
 </RequestExample>
@@ -98,15 +97,18 @@ curl -X PUT http://localhost:8080/api/v1/account/user/me \
   "user": {
     "userId": "abc123-def456-ghi789",
     "username": "newusername",
-    "email": "newemail@example.com",
-    "createdAt": "2024-01-15T10:30:00Z"
+    "email": "user@example.com",
+    "createdAt": "2024-01-15T10:30:00Z",
+    "email_verified": true,
+    "verification_required": true
   }
 }
 ```
 
-```json 400 Bad Request
+```json 202 Accepted (Email change)
 {
-  "error": "Email already exists"
+  "message": "Confirm the link sent to your new address. Your current email remains active.",
+  "pending_email": "newemail@example.com"
 }
 ```
 
@@ -116,3 +118,11 @@ curl -X PUT http://localhost:8080/api/v1/account/user/me \
 }
 ```
 </ResponseExample>
+
+With verification enabled, Nebula notifies the current address and sends a confirmation link to the new address. The current email and JWT sessions remain active until the link is confirmed using [POST /auth/verify-email](/api-reference/authentication#verify-email). Confirmation changes the address atomically and revokes all previous JWT sessions. Sign in again with the new address; database API keys remain valid.
+
+Missing or incorrect passwords return `401` with `code: "reauthentication_required"`. A request combining an email change with a username update returns `400` with `code: "invalid_email_change"`. Delivery failures return `503` with `code: "verification_delivery_unconfirmed"`; no address change is applied. Account send limits return `429` with `code: "verification_rate_limited"` and `Retry-After` in seconds until retry is allowed. The same 60-second cooldown and five-per-hour budget apply to signup verification, resends, and email changes.
+
+Only the most recent pending target can be confirmed. If that delivery fails, an earlier successfully delivered pending request is retained. Confirmation of an address already claimed by another account returns `409` with `code: "email_conflict"` and preserves the current email.
+
+When verification is disabled, legacy accounts keep the existing immediate email-update behavior and may update both fields together. Accounts already subject to verification cannot bypass confirmation by disabling SMTP; their email changes return `503` with `code: "verification_disabled"` until delivery is configured again.

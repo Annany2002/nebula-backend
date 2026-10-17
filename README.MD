@@ -11,7 +11,7 @@ Open-source Backend-as-a-Service built with Go, Gin, and SQLite. Provision user 
 | Area             | Available today                                                                                                                                     |
 | ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Database storage | One SQLite file per user database, a separate platform metadata database, WAL mode, and foreign-key enforcement                                     |
-| Authentication   | Account signup/login, bcrypt password hashing, JWT sessions, and database-scoped API keys                                                           |
+| Authentication   | Account signup/login, optional SMTP email verification, confirmed email changes, bcrypt passwords, JWT sessions, and database-scoped API keys       |
 | API keys         | Generate, rotate, inspect prefix/creation metadata, and revoke; one active key per database, hashed at rest                                         |
 | Schemas          | Create tables with typed columns and foreign keys; add/rename/drop columns and rename tables, including transactional batches of schema alterations |
 | Records          | Create/read/update/delete records, column equality filters, pagination, sorting, and field selection                                                |
@@ -53,6 +53,18 @@ curl http://localhost:8080/ping
 
 Run the frontend separately using the [frontend setup instructions](https://github.com/Annany2002/nebula-frontend#local-setup). Its development port is `3000`.
 
+### Local email testing
+
+Run `./scripts/dev-email.sh` to start the backend with email verification enabled and a local [Mailpit](https://mailpit.axllent.org/) inbox at http://localhost:8025. Start the frontend separately on port 3000 with `VITE_BACKEND_URL=http://localhost:8080`. In the three-repository workspace, `./dev.sh --email` starts all three services together.
+
+The first run downloads pinned Mailpit v1.31.5 for macOS/Linux on ARM64/x86_64 and verifies its SHA-256 checksum. It requires curl, OpenSSL, tar, shasum or sha256sum, plus the usual Go/C toolchain. Docker and provider credentials are not required.
+
+Both Mailpit ports bind to `127.0.0.1`. SMTP requires authentication and STARTTLS; a generated local CA is trusted only by the backend process. No system trust settings or `.env` files are changed. Mailpit starts with a clean environment and no forwarding/relay configuration, so messages stay in the local inbox.
+
+Generated credentials, certificates, captured messages and separate test accounts live in the ignored `.local-email/` directory. Normal local accounts are not available in this mode: register a new test account using an address such as `tester@example.test`, open its message in Mailpit, and follow the confirmation link. Browser sessions from normal mode may need to be signed out first. Test accounts and mail persist across restarts. Press Ctrl+C to stop the services.
+
+Use `./scripts/dev-email.sh setup` to prepare tools without starting services, or `./scripts/dev-email.sh mailpit` to run only the inbox. The runner refuses `APP_ENV=production`; use your actual SMTP provider for deployed environments.
+
 ### Configuration
 
 | Variable                  | Purpose                                          | Default                                  |
@@ -84,7 +96,11 @@ The [documentation source](docs/introduction.mdx) lives in `docs/`. API routes a
 - Database data operations accept a user JWT or `Authorization: ApiKey <key>` for that database.
 - Listing, creating, and deleting databases require a user JWT. An API key cannot access another database.
 
-Signup requires a username of at least six characters and a password of at least eight characters. Signup returns `user_id` and a message; log in separately to receive a JWT.
+Signup requires a username of at least six characters and a password of at least eight characters (at most 72 UTF-8 bytes). Signup returns `user_id` and a message; log in separately to receive a JWT.
+
+Email verification is disabled by default. When `EMAIL_VERIFICATION_ENABLED=true`, new accounts must confirm an emailed, expiring link before login or protected API access. Existing accounts retain access and report their actual verification status. Email changes require the current password, notify the old address, and take effect only after confirmation of the new address; confirmation revokes previous JWT sessions while preserving database API keys.
+
+Configure `APP_PUBLIC_URL` and the `SMTP_*` variables in [.env.example](.env.example), then deploy the frontend `/verify-email` flow before enabling verification. Enabling with incomplete or insecure mail configuration prevents startup. See the [authentication contract](docs/api-reference/authentication.mdx), [profile contract](docs/api-reference/user-profile.mdx), and [configuration guide](docs/guides/configuration.mdx) for delivery limits, failure recovery, and rollout details. Verification proves access to a mailbox; disposable-address and multiple-account restrictions are separate controls.
 
 ```bash
 curl -X POST http://localhost:8080/auth/signup \
