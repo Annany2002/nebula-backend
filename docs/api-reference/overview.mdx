@@ -56,7 +56,8 @@ Nebula supports two authentication methods:
 
 | Method | Endpoint | Description |
 | --- | --- | --- |
-| GET | `/api/v1/admin/users` | Paginated safe account metadata |
+| GET | `/api/v1/admin/users` | Search and filter paginated safe account metadata |
+| GET | `/api/v1/admin/audit-events` | Filtered suspension and activation history |
 | GET | `/api/v1/admin/users/:user_id` | Account details |
 | GET | `/api/v1/admin/stats` | User, database and table counts with completeness information |
 | PUT | `/api/v1/admin/users/:user_id/suspend` | Suspend an account and revoke JWT sessions |
@@ -81,6 +82,7 @@ Database listing, creation, and deletion require a JWT. Database details accept 
 | --- | --- | --- |
 | GET | `/api/v1/account/user/me` | Get current profile |
 | PUT | `/api/v1/account/user/me` | Update current profile |
+| GET | `/api/v1/account/summary` | [Owned database, API key and ready backup counts](/api-reference/account-summary) |
 
 ### API Key Management (JWT only)
 

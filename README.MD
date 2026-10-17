@@ -91,7 +91,7 @@ The [documentation source](docs/introduction.mdx) lives in `docs/`. API routes a
 
 ## Platform administration
 
-Platform administrator JWTs can list accounts, inspect safe user details and platform user/database/table counts, and suspend or activate accounts through `/api/v1/admin`. No account is promoted automatically. Membership is checked on every request; API keys cannot access admin routes. Responses exclude credentials and tenant file paths. Table counts inspect schemas read-only and explicitly report unavailable databases.
+Platform administrator JWTs can search and filter accounts by role or status, inspect safe user details and platform user/database/table counts, read suspension/activation audit history, and suspend or activate accounts through `/api/v1/admin`. No account is promoted automatically. Membership is checked on every request; API keys cannot access admin routes. Responses exclude credentials and tenant file paths. Table counts inspect schemas read-only and explicitly report unavailable databases.
 
 Trusted server operators can grant or revoke membership using `go run ./cmd/admin --metadata-db ./data/metadata.db --user-id '<account-id>' grant` (or `revoke`) after starting the updated backend once to initialize its schema. Suspension blocks login, existing JWTs and API keys without deleting data; activation requires a fresh JWT login and preserves email-verification requirements. Account transitions are audited atomically and admin accounts are protected against suspension. See the [administration API and provisioning guide](docs/api-reference/administration.mdx) for contracts and limits. There is no admin web interface.
 
@@ -99,6 +99,7 @@ Trusted server operators can grant or revoke membership using `go run ./cmd/admi
 
 - Public `/auth/signup` and `/auth/login` do not require credentials.
 - Account/profile and API key management use `Authorization: Bearer <jwt>`.
+- The current profile includes the account's current `user` or `admin` role. `GET /api/v1/account/summary` returns owner-scoped database, stored API key and ready backup counts from metadata; see the [account summary contract](docs/api-reference/account-summary.mdx).
 - Database data operations accept a user JWT or `Authorization: ApiKey <key>` for that database.
 - Listing, creating, and deleting databases require a user JWT. An API key cannot access another database.
 
