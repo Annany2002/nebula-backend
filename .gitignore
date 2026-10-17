@@ -51,3 +51,6 @@ logs
 # Temp Files
 tmp
 bin
+
+# Local email tools, private keys, credentials, captured mail and isolated test accounts
+/.local-email/
