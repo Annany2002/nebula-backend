@@ -68,6 +68,7 @@ func SetupRouterWithEmailSender(metaDB *sql.DB, cfg *config.Config, sender email
 	recordHandler := handlers.NewRecordHandler(metaDB, cfg)
 	tableHandler := handlers.NewTableHandler(metaDB, cfg)
 	backupHandler := handlers.NewBackupHandler(metaDB, cfg.MetadataDbDir)
+	adminHandler := handlers.NewAdminHandler(metaDB)
 
 	// --- Public Routes ---
 	router.GET("/ping", func(c *gin.Context) { c.String(200, "pong") })
@@ -97,6 +98,12 @@ func SetupRouterWithEmailSender(metaDB *sql.DB, cfg *config.Config, sender email
 		accountRoutes.POST("/databases/:db_name/apikey", dbHandler.CreateAPIKey)
 		accountRoutes.DELETE("/databases/:db_name/apikey", dbHandler.DeleteAPIKey)
 	}
+
+	adminRoutes := router.Group("/api/v1/admin")
+	adminRoutes.Use(middleware.AdminReadContext(), middleware.AuthMiddleware(cfg), middleware.RequireVerifiedEmail(metaDB), middleware.RequirePlatformAdmin(metaDB))
+	adminRoutes.GET("/users", adminHandler.ListUsers)
+	adminRoutes.GET("/users/:user_id", adminHandler.GetUser)
+	adminRoutes.GET("/stats", adminHandler.Stats)
 
 	// --- Protected Routes ---
 	apiRoutes := router.Group("/api/v1")

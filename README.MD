@@ -89,6 +89,12 @@ The Compose stack starts the API on `8080` and the Mintlify documentation on `30
 
 The [documentation source](docs/introduction.mdx) lives in `docs/`. API routes are defined in [api/router.go](api/router.go).
 
+## Platform administration
+
+Read-only `/api/v1/admin/users`, `/api/v1/admin/users/:user_id`, and `/api/v1/admin/stats` endpoints require an explicitly provisioned administrator and a valid user JWT. No account is promoted automatically. Membership is checked on every request; API keys cannot access these routes. Responses exclude credentials and tenant file paths, and statistics read only platform metadata.
+
+Trusted server operators can grant or revoke membership using `go run ./cmd/admin --metadata-db ./data/metadata.db --user-id '<account-id>' grant` (or `revoke`) after starting the updated backend once to initialize its schema. See the [administration API and provisioning guide](docs/api-reference/administration.mdx) for contracts and limits. This stage includes no admin web interface or user suspension.
+
 ## Authentication
 
 - Public `/auth/signup` and `/auth/login` do not require credentials.

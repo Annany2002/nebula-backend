@@ -52,6 +52,16 @@ Nebula supports two authentication methods:
 | GET | `/api/v1/health` | Auth health check |
 | GET | `/api/v1/user/:user_id` | Get user details |
 
+### Platform Administration (admin JWT only)
+
+| Method | Endpoint | Description |
+| --- | --- | --- |
+| GET | `/api/v1/admin/users` | Paginated safe account metadata |
+| GET | `/api/v1/admin/users/:user_id` | Account details |
+| GET | `/api/v1/admin/stats` | Registered user and database counts |
+
+These routes require explicit platform administrator membership, checked on every request. See [administration and operator provisioning](/api-reference/administration).
+
 ### Database Management
 
 | Method | Endpoint | Description |

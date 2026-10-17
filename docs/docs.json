@@ -46,7 +46,8 @@
               "api-reference/overview",
               "api-reference/authentication",
               "api-reference/user-profile",
-              "api-reference/api-keys"
+              "api-reference/api-keys",
+              "api-reference/administration"
             ]
           },
           {

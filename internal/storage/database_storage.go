@@ -61,6 +61,10 @@ func ConnectMetadataDB(cfg *config.Config) (*sql.DB, error) {
 		return nil, fmt.Errorf("failed to ensure users table: %w", err)
 	}
 	customLog.Println("Storage: Users table ensured.")
+	if err = ensureAdminSchema(db); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("ensure platform admin schema: %w", err)
+	}
 	if err = ensureEmailVerificationTables(db); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("ensure account verification tables: %w", err)
