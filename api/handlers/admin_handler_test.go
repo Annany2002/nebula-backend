@@ -98,7 +98,7 @@ func TestAdminReadContractsAndPagination(t *testing.T) {
 	require.Equal(t, 404, out.Code, "Admin membership must not widen ordinary tenant access")
 	for _, query := range []string{
 		"limit=0", "limit=101", "offset=-1", "offset=1000001", "limit=", "offset=",
-		"limit=1&limit=2", "offset=0&offset=1", "role=admin", "limit=1.5", "limit=%2B1",
+		"limit=1&limit=2", "offset=0&offset=1", "role=owner", "limit=1.5", "limit=%2B1",
 		"limit=1e2", "limit=999999999999999999999999", "limit=%GG", "limit=1;offset=0",
 	} {
 		out = f.request("GET", "/api/v1/admin/users?"+query, "Bearer "+f.token, "")

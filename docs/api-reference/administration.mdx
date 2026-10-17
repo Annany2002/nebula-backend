@@ -58,6 +58,16 @@ Authorization: Bearer <admin-jwt>
 
 `limit` defaults to **20** and accepts **1–100**. `offset` defaults to **0** and accepts **0–1,000,000**. Values must contain decimal digits; duplicate, unknown, malformed and out-of-range parameters return **400** with `code: "invalid_admin_query"`.
 
+Optional filters combine with AND:
+
+| Parameter | Meaning |
+| --- | --- |
+| `q` | Literal substring of username or email; surrounding whitespace is trimmed. Maximum 100 Unicode code points. ASCII letters match without case sensitivity; non-ASCII case folding is not provided. `%`, `_` and `\` are literal characters, not search wildcards. |
+| `role` | Exactly `user` or `admin`, using current membership. |
+| `status` | Exactly `active` or `suspended`. |
+
+For example, `GET /api/v1/admin/users?q=builder&role=user&status=active&limit=20` returns matching active ordinary accounts. `pagination.total` counts only matching accounts. Empty parameter values, invalid UTF-8 and control characters are rejected. Whitespace-only `q` applies no search. The raw query string is limited to 2,048 bytes. URL-encode filter values.
+
 Results are ordered by account creation time descending, then user ID ascending. The total and page use the same metadata snapshot. An offset beyond the total returns `users: []` with the unchanged total. Offset pages are separate snapshots; concurrent registrations may shift later pages.
 
 ## User details
@@ -115,6 +125,32 @@ Suspension blocks password login and all protected JWT/API-key access. Tenant da
 Administrator accounts, including the caller, cannot be suspended (**409**, `admin_account_protected`). A trusted operator must revoke the target's admin membership through the CLI first. This prevents self-suspension and accidental admin lockouts through the API.
 
 Actor membership, suspension, verification and session version are rechecked inside the same metadata write transaction as the status transition. Concurrent role/status changes are serialized. The transition, session revocation and an audit event commit atomically; audit failure rolls everything back. `platform_account_events` retains actor/target IDs, action and timestamp, without credentials or email addresses. Duplicate requests create no additional event or session-version change.
+
+## Audit history
+
+```http
+GET /api/v1/admin/audit-events?target_user_id=<account-id>&action=suspend&limit=20&offset=0
+Authorization: Bearer <admin-jwt>
+```
+
+```json
+{
+  "events": [
+    {
+      "event_id": 12,
+      "actor_user_id": "<admin-account-id>",
+      "target_user_id": "<account-id>",
+      "action": "suspend",
+      "created_at": "2026-10-17T09:00:00Z"
+    }
+  ],
+  "pagination": { "total": 1, "limit": 20, "offset": 0 }
+}
+```
+
+Lists the persisted suspension and activation transitions described above. It does not represent all platform activity. Events contain only IDs, action and timestamp; deleted accounts remain in history through their recorded IDs.
+
+Optional exact-match filters are `actor_user_id`, `target_user_id` (each at most 128 Unicode code points), and `action` (`suspend` or `activate`). Filters combine with AND. Pagination, strict query validation and limits match the user list. Results are ordered by event ID descending, including when timestamps are equal. Filtered total and page share a metadata snapshot. An empty or exhausted page returns `events: []`. Offset pages are separate snapshots; concurrent transitions may shift later pages.
 
 ## Security and limits
 

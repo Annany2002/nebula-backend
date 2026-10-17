@@ -91,6 +91,7 @@ func SetupRouterWithEmailSender(metaDB *sql.DB, cfg *config.Config, sender email
 	{
 		// User Profile Management
 		accountRoutes.GET("/user/me", authHandler.GetCurrentUser)
+		accountRoutes.GET("/summary", authHandler.AccountSummary)
 		accountRoutes.PUT("/user/me", authHandler.UpdateCurrentUser)
 
 		// API Key Management
@@ -102,6 +103,7 @@ func SetupRouterWithEmailSender(metaDB *sql.DB, cfg *config.Config, sender email
 	adminRoutes := router.Group("/api/v1/admin")
 	adminRoutes.Use(middleware.AdminRequestContext(), middleware.AuthMiddleware(cfg), middleware.RequireAccountAccess(metaDB), middleware.RequirePlatformAdmin(metaDB))
 	adminRoutes.GET("/users", adminHandler.ListUsers)
+	adminRoutes.GET("/audit-events", adminHandler.AuditEvents)
 	adminRoutes.GET("/users/:user_id", adminHandler.GetUser)
 	adminRoutes.GET("/stats", adminHandler.Stats)
 	adminRoutes.PUT("/users/:user_id/suspend", adminHandler.Suspend)

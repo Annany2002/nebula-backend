@@ -30,6 +30,7 @@ curl http://localhost:8080/api/v1/account/user/me \
   "userId": "abc123-def456-ghi789",
   "username": "myusername",
   "email": "user@example.com",
+  "role": "user",
   "createdAt": "2024-01-15T10:30:00Z",
   "email_verified": true,
   "verification_required": true
@@ -44,6 +45,10 @@ curl http://localhost:8080/api/v1/account/user/me \
 </ResponseExample>
 
 `email_verified` describes proof of the current address. `verification_required` indicates whether verification is enforced for this account. Existing accounts retain access with both fields initially `false`. `pending_email` is present only while an address change awaits confirmation. These fields also appear in login and profile-update user responses.
+
+`role` is `user` or `admin`, read from current platform membership. It appears in this profile response and the successful **200** profile-update response, but is not added to the login response. Use it to show the appropriate navigation; administrator endpoints still check membership on every request. Signup and profile updates cannot grant a role. Profile reads use `Cache-Control: no-store` and `Vary: Authorization`.
+
+For resource counts, use the [account summary](/api-reference/account-summary).
 
 ---
 
@@ -98,6 +103,7 @@ curl -X PUT http://localhost:8080/api/v1/account/user/me \
     "userId": "abc123-def456-ghi789",
     "username": "newusername",
     "email": "user@example.com",
+    "role": "user",
     "createdAt": "2024-01-15T10:30:00Z",
     "email_verified": true,
     "verification_required": true

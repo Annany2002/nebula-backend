@@ -1,0 +1,35 @@
+---
+title: "Account summary"
+description: "Read the signed-in account's resource counts."
+---
+
+```http
+GET /api/v1/account/summary
+Authorization: Bearer <user-jwt>
+```
+
+```json
+{
+  "summary": {
+    "database_count": 2,
+    "active_api_key_count": 1,
+    "ready_backup_count": 3
+  }
+}
+```
+
+Requires the owner's JWT; API keys are rejected with **401**. Administrators also receive only their own counts. Existing verification, suspension and session-revocation checks apply.
+
+All three counts come from one metadata snapshot:
+
+| Field | Meaning |
+| --- | --- |
+| `database_count` | Registered databases owned by the signed-in account. |
+| `active_api_key_count` | Existing API key records whose database belongs to that account. This counts stored keys, without testing a request or inspecting credentials. |
+| `ready_backup_count` | Owned backups with status `ready`, including retained snapshots of deleted source databases. |
+
+An account without resources receives zero for each count. Tenant databases and backup files are not opened: these are metadata counts, not file-integrity or availability checks. No filesystem paths or credentials are returned.
+
+Query parameters are not accepted; supplying any returns **400**, `invalid_summary_query`. The account scope always comes from the JWT. Missing accounts return **404**, `user_not_found`. Cancellation or the three-second deadline returns **408**, `request_timeout`. Other storage failures return a generic **500**, `summary_unavailable`.
+
+Successful responses use `Cache-Control: no-store` and `Vary: Authorization`.

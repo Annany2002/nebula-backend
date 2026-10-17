@@ -43,6 +43,7 @@ type UpdateProfileRequest struct {
 
 // UserProfileResponse defines the structure for user profile response (without password)
 type UserProfileResponse struct {
+	Role                 string `json:"role"`
 	EmailVerified        bool   `json:"email_verified"`
 	VerificationRequired bool   `json:"verification_required"`
 	PendingEmail         string `json:"pending_email,omitempty"`

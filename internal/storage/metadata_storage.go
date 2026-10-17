@@ -51,7 +51,7 @@ func CreateUser(ctx context.Context, db *sql.DB, user_id, username, email, passw
 	return user_id, nil
 }
 
-const userSelect = `SELECT u.user_id,u.username,u.email,u.password_hash,u.created_at,COALESCE(v.verified_email=u.email,0),COALESCE(v.required,0),COALESCE(v.pending_email,''),COALESCE(v.session_version,0) FROM users u LEFT JOIN account_email_verifications v ON v.user_id=u.user_id `
+const userSelect = `SELECT u.user_id,u.username,u.email,u.password_hash,u.created_at,COALESCE(v.verified_email=u.email,0),COALESCE(v.required,0),COALESCE(v.pending_email,''),COALESCE(v.session_version,0),CASE WHEN EXISTS(SELECT 1 FROM platform_admins a WHERE a.user_id=u.user_id) THEN 'admin' ELSE 'user' END FROM users u LEFT JOIN account_email_verifications v ON v.user_id=u.user_id `
 
 // FindUserByEmail retrieves the account and its current verification state.
 func FindUserByEmail(ctx context.Context, db *sql.DB, email string) (*domain.UserMetadata, error) {
@@ -65,7 +65,7 @@ func FindUserByUserId(ctx context.Context, db *sql.DB, id string) (*domain.UserM
 
 func scanUser(row *sql.Row) (*domain.UserMetadata, error) {
 	var user domain.UserMetadata
-	err := row.Scan(&user.UserId, &user.Username, &user.Email, &user.PasswordHash, &user.CreatedAt, &user.EmailVerified, &user.VerificationRequired, &user.PendingEmail, &user.SessionVersion)
+	err := row.Scan(&user.UserId, &user.Username, &user.Email, &user.PasswordHash, &user.CreatedAt, &user.EmailVerified, &user.VerificationRequired, &user.PendingEmail, &user.SessionVersion, &user.Role)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrUserNotFound
 	}
