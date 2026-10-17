@@ -91,3 +91,35 @@ func TestSMTPPrivateCertificateTrust(t *testing.T) {
 	_, err = loadEmailConfig()
 	require.NoError(t, err, "disabled email must not require a CA file")
 }
+
+func TestPasswordRecoveryCanRunIndependentlyOfSignupVerification(t *testing.T) {
+	for key, value := range map[string]string{
+		"EMAIL_VERIFICATION_ENABLED": "false", "PASSWORD_RESET_ENABLED": "true", "PASSWORD_RESET_TTL_MINUTES": "45",
+		"APP_PUBLIC_URL": "http://localhost:3000", "SMTP_HOST": "smtp.example.test", "SMTP_USERNAME": "fixture", "SMTP_PASSWORD": "fixture-password", "SMTP_FROM": "nebula@example.test", "SMTP_TLS_MODE": "starttls", "SMTP_PORT": "587", "SMTP_CA_FILE": "",
+	} {
+		t.Setenv(key, value)
+	}
+	cfg, err := loadEmailConfig()
+	require.NoError(t, err)
+	require.False(t, cfg.Enabled)
+	require.True(t, cfg.PasswordResetEnabled)
+	require.Equal(t, 45*time.Minute, cfg.PasswordResetTTL)
+	t.Setenv("EMAIL_VERIFICATION_TTL_MINUTES", "invalid-but-disabled")
+	_, err = loadEmailConfig()
+	require.NoError(t, err)
+	for _, value := range []string{"4", "121", "invalid"} {
+		t.Setenv("PASSWORD_RESET_TTL_MINUTES", value)
+		_, err = loadEmailConfig()
+		require.Error(t, err)
+	}
+	t.Setenv("PASSWORD_RESET_TTL_MINUTES", "30")
+	t.Setenv("SMTP_PASSWORD", "")
+	_, err = loadEmailConfig()
+	require.Error(t, err)
+	t.Setenv("PASSWORD_RESET_ENABLED", "false")
+	_, err = loadEmailConfig()
+	require.NoError(t, err)
+	t.Setenv("PASSWORD_RESET_ENABLED", "invalid")
+	_, err = loadEmailConfig()
+	require.Error(t, err)
+}
