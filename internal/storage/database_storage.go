@@ -61,6 +61,10 @@ func ConnectMetadataDB(cfg *config.Config) (*sql.DB, error) {
 		return nil, fmt.Errorf("failed to ensure users table: %w", err)
 	}
 	customLog.Println("Storage: Users table ensured.")
+	if err = ensureEmailVerificationTables(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("ensure account verification tables: %w", err)
+	}
 
 	// --- Ensure 'databases' table exists ---
 	createDatabasesTableSQL := `

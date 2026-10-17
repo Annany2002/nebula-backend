@@ -36,22 +36,27 @@ type GetUser struct {
 
 // UpdateProfileRequest defines the structure for updating user profile
 type UpdateProfileRequest struct {
-	Username string `json:"username,omitempty" binding:"omitempty,min=6"`
-	Email    string `json:"email,omitempty" binding:"omitempty,email"`
+	CurrentPassword string `json:"current_password,omitempty"`
+	Username        string `json:"username,omitempty" binding:"omitempty,min=6"`
+	Email           string `json:"email,omitempty" binding:"omitempty,email"`
 }
 
 // UserProfileResponse defines the structure for user profile response (without password)
 type UserProfileResponse struct {
-	UserId    string `json:"userId"`
-	Username  string `json:"username"`
-	Email     string `json:"email"`
-	CreatedAt string `json:"createdAt"`
+	EmailVerified        bool   `json:"email_verified"`
+	VerificationRequired bool   `json:"verification_required"`
+	PendingEmail         string `json:"pending_email,omitempty"`
+	UserId               string `json:"userId"`
+	Username             string `json:"username"`
+	Email                string `json:"email"`
+	CreatedAt            string `json:"createdAt"`
 }
 
 // --- JWT Claims ---
 
 // CustomClaims includes standard claims and our custom userID claim for JWT
 type CustomClaims struct {
-	UserID string `json:"userId"`
+	SessionVersion int    `json:"session_version,omitempty"`
+	UserID         string `json:"userId"`
 	jwt.RegisteredClaims
 }

@@ -15,6 +15,7 @@ import (
 	"github.com/Annany2002/nebula-backend/api/handlers"
 	"github.com/Annany2002/nebula-backend/api/middleware" // Import middleware package
 	"github.com/Annany2002/nebula-backend/config"
+	"github.com/Annany2002/nebula-backend/internal/email"
 	"github.com/Annany2002/nebula-backend/internal/logger"
 )
 
@@ -24,6 +25,11 @@ var (
 
 // SetupRouter initializes the Gin router and sets up all routes.
 func SetupRouter(metaDB *sql.DB, cfg *config.Config) *gin.Engine {
+	return SetupRouterWithEmailSender(metaDB, cfg, email.NewSMTP(&cfg.Email.SMTP))
+}
+
+// SetupRouterWithEmailSender allows deployments and tests to supply an account mail adapter.
+func SetupRouterWithEmailSender(metaDB *sql.DB, cfg *config.Config, sender email.Sender) *gin.Engine {
 	router := gin.Default() // Includes Logger and Recovery
 
 	// Configure CORS middleware
@@ -43,6 +49,7 @@ func SetupRouter(metaDB *sql.DB, cfg *config.Config) *gin.Engine {
 	}
 	config.AllowMethods = []string{"POST", "OPTIONS", "GET", "PUT", "DELETE"} // Allows these methods.
 	config.AllowHeaders = []string{"Origin", "Content-Type", "Authorization"} // Allows these headers.
+	config.ExposeHeaders = []string{"Retry-After"}
 
 	router.Use(cors.New(config))
 
@@ -56,7 +63,7 @@ func SetupRouter(metaDB *sql.DB, cfg *config.Config) *gin.Engine {
 	router.Use(middleware.TelemetryMiddleware(metaDB))
 
 	// Initialize Handlers
-	authHandler := handlers.NewAuthHandler(metaDB, cfg)
+	authHandler := handlers.NewAuthHandlerWithSender(metaDB, cfg, sender)
 	dbHandler := handlers.NewDatabaseHandler(metaDB, cfg)
 	recordHandler := handlers.NewRecordHandler(metaDB, cfg)
 	tableHandler := handlers.NewTableHandler(metaDB, cfg)
@@ -69,14 +76,17 @@ func SetupRouter(metaDB *sql.DB, cfg *config.Config) *gin.Engine {
 	// Login, Signup routes
 	authRoutes := router.Group("/auth")
 	{ /* Routes using authHandler */
-		authRoutes.POST("/signup", authHandler.Signup)
+		authRoutes.POST("/signup", middleware.LimitVerificationRequests(metaDB, cfg.Email.Enabled), authHandler.Signup)
 		authRoutes.POST("/login", authHandler.Login)
+		authRoutes.POST("/verify-email", authHandler.VerifyEmail)
+		authRoutes.POST("/resend-verification", middleware.LimitVerificationRequests(metaDB, cfg.Email.Enabled), authHandler.ResendVerification)
 	}
 
 	// Separate group for JWT-only protected routes ---
 	// Example: Account management, API Key generation
 	accountRoutes := router.Group("/api/v1/account")
 	accountRoutes.Use(middleware.AuthMiddleware(cfg))
+	accountRoutes.Use(middleware.RequireVerifiedEmail(metaDB))
 	{
 		// User Profile Management
 		accountRoutes.GET("/user/me", authHandler.GetCurrentUser)
@@ -93,6 +103,7 @@ func SetupRouter(metaDB *sql.DB, cfg *config.Config) *gin.Engine {
 
 	// Apply Combined Auth Middleware
 	apiRoutes.Use(middleware.CombinedAuthMiddleware(metaDB, cfg))
+	apiRoutes.Use(middleware.RequireVerifiedEmail(metaDB))
 	{ /* Routes using dbHandler and recordHandler */
 
 		// health route to check for protected route health

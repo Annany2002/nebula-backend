@@ -18,6 +18,7 @@ var (
 
 // Config holds application configuration values
 type Config struct {
+	Email          EmailConfig
 	ServerPort     string
 	JWTSecret      string
 	JWTExpiration  time.Duration
@@ -69,8 +70,13 @@ func LoadConfig() (*Config, error) {
 	}
 	jwtExpiration := time.Hour * time.Duration(jwtExpHours)
 
+	email, err := loadEmailConfig()
+	if err != nil {
+		return nil, err
+	}
 	// Return final Config struct
 	cfg := &Config{
+		Email:          email,
 		ServerPort:     port,
 		JWTSecret:      jwtSecret,
 		JWTExpiration:  jwtExpiration,

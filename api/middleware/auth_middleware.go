@@ -34,7 +34,7 @@ func AuthMiddleware(cfg *config.Config) gin.HandlerFunc {
 		tokenString := parts[1]
 
 		// Validate JWT using the internal auth function
-		userId, err := auth.ValidateJWT(tokenString, cfg.JWTSecret)
+		userId, version, err := auth.ValidateSessionJWT(tokenString, cfg.JWTSecret)
 
 		if err != nil {
 			customLog.Printf("AuthMiddleware: Token validation failed: %v", err)
@@ -54,6 +54,7 @@ func AuthMiddleware(cfg *config.Config) gin.HandlerFunc {
 
 		// Token is valid! Set the userID in the context
 		customLog.Printf("AuthMiddleware: Token validated successfully for UserID: %s", userId)
+		c.Set("sessionVersion", version)
 		c.Set("userId", userId) // Use consistent key
 
 		c.Next() // Continue to the next handler

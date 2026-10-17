@@ -76,7 +76,7 @@ func CombinedAuthMiddleware(db *sql.DB, cfg *config.Config) gin.HandlerFunc {
 
 		case "bearer":
 			customLog.Println("CombinedAuthMiddleware: Attempting Bearer token authentication...")
-			jwtUserID, jwtErr := auth.ValidateJWT(credentials, cfg.JWTSecret)
+			jwtUserID, version, jwtErr := auth.ValidateSessionJWT(credentials, cfg.JWTSecret)
 			if jwtErr != nil {
 				customLog.Printf("AuthMiddleware: Token validation failed: %v", jwtErr)
 				statusCode := http.StatusUnauthorized
@@ -93,6 +93,7 @@ func CombinedAuthMiddleware(db *sql.DB, cfg *config.Config) gin.HandlerFunc {
 				return
 			}
 
+			c.Set("sessionVersion", version)
 			userId = jwtUserID
 			databaseId = nil // Explicitly set databaseID to nil for JWT/user scope
 
