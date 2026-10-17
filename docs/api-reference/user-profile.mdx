@@ -42,6 +42,7 @@ curl http://localhost:8080/api/v1/account/user/me \
   "error": "Unauthorized"
 }
 ```
+
 </ResponseExample>
 
 `email_verified` describes proof of the current address. `verification_required` indicates whether verification is enforced for this account. Existing accounts retain access with both fields initially `false`. `pending_email` is present only while an address change awaits confirmation. These fields also appear in login and profile-update user responses.
@@ -71,7 +72,9 @@ Update the profile of the currently authenticated user.
 </ParamField>
 
 <Note>
-  With email verification enabled, submit username updates and email changes separately. Email changes require your current password and confirmation of the new mailbox.
+  With email verification enabled, submit username updates and email changes
+  separately. Email changes require your current password and confirmation of
+  the new mailbox.
 </Note>
 
 <RequestExample>
@@ -93,6 +96,7 @@ curl -X PUT http://localhost:8080/api/v1/account/user/me \
     "current_password": "<your-current-password>"
   }'
 ```
+
 </RequestExample>
 
 <ResponseExample>
@@ -123,11 +127,14 @@ curl -X PUT http://localhost:8080/api/v1/account/user/me \
   "error": "No fields to update. Provide 'username' or 'email'."
 }
 ```
+
 </ResponseExample>
 
 With verification enabled, Nebula notifies the current address and sends a confirmation link to the new address. The current email and JWT sessions remain active until the link is confirmed using [POST /auth/verify-email](/api-reference/authentication#verify-email). Confirmation changes the address atomically and revokes all previous JWT sessions. Sign in again with the new address; database API keys remain valid.
 
-Missing or incorrect passwords return `401` with `code: "reauthentication_required"`. A request combining an email change with a username update returns `400` with `code: "invalid_email_change"`. Delivery failures return `503` with `code: "verification_delivery_unconfirmed"`; no address change is applied. Account send limits return `429` with `code: "verification_rate_limited"` and `Retry-After` in seconds until retry is allowed. The same 60-second cooldown and five-per-hour budget apply to signup verification, resends, and email changes.
+Missing or incorrect passwords return `401` with `code: "reauthentication_required"`. A request combining an email change with a username update returns `400` with `code: "invalid_email_change"`. Delivery failures return `503` with `code: "verification_delivery_unconfirmed"`; no address change is applied. Account send limits return `429` with `code: "verification_rate_limited"` and `Retry-After` in seconds until retry is allowed. The same 60-second cooldown and five-per-hour budget apply across signup verification, resends, email changes and password-recovery delivery.
+
+A completed password reset cancels pending email-change links and revokes prior JWT sessions. An email change whose password reauthentication predates that reset cannot issue a fresh link.
 
 Only the most recent pending target can be confirmed. If that delivery fails, an earlier successfully delivered pending request is retained. Confirmation of an address already claimed by another account returns `409` with `code: "email_conflict"` and preserves the current email.
 

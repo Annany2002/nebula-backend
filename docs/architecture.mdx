@@ -55,6 +55,7 @@ nebula-backend/
     
     Framework-agnostic core logic:
     - **Auth:** JWT generation/validation, password hashing
+    - **Account mail:** verification and recovery services share an SMTP sender, random-token helpers and persistent mail limits
     - **Storage:** Database operations (metadata + user DBs)
     - **Domain:** Core business entities (User, etc.)
     - **Logger:** Structured logging implementation
@@ -79,7 +80,7 @@ sequenceDiagram
     participant M as Middleware
     participant H as Handler
     participant S as Storage
-    
+
     C->>M: POST /api/v1/.../records
     M->>M: Rate Limit Check
     M->>M: Validate API Key
@@ -114,23 +115,31 @@ sequenceDiagram
 - Different user databases can be written to concurrently
 
 <Warning>
-  SQLite has single-writer limitations. For high-throughput production workloads, consider migrating to PostgreSQL or MySQL.
+  SQLite permits one writer per database file. Run one backend process per
+  metadata directory; process-local lifecycle locks do not coordinate replicas.
+  PostgreSQL and MySQL are not supported storage configurations in this release.
 </Warning>
 
 ## Deployment
 
 Nebula runs as a Go binary or Docker container. Kubernetes deployments require your own manifests:
 
-| Component | Purpose |
-|-----------|---------|
-| Docker | Build application image |
-| Kubernetes | Orchestrate containers |
+| Component        | Purpose                            |
+| ---------------- | ---------------------------------- |
+| Docker           | Build application image            |
+| Kubernetes       | Orchestrate containers             |
 | PersistentVolume | Store SQLite files across restarts |
-| Ingress | Route external traffic |
-| ConfigMap/Secret | Manage configuration |
+| Ingress          | Route external traffic             |
+| ConfigMap/Secret | Manage configuration               |
 
 ## Managed snapshot storage
 
 `database_backups` in platform metadata tracks each snapshot's owner, source identity/name, lifecycle status, size, SHA-256 and creation time. Backup rows intentionally do not cascade when a source database is deleted. Private snapshot files live under `data/.nebula-backups/<owner>/<backup_uuid>.db`.
 
 The store reserves quota before work, uses the shared SQLite online snapshot engine, and publishes only a validated complete file before committing `ready`. A process-local database lifecycle lock serializes snapshot capture with source deletion. Startup recovery removes interrupted creations and finishes deletions; deleted UUIDs remain reserved to make delayed requests safe. The store requires one backend server process per metadata directory. Restore reuses the existing SQLite import publication mechanism.
+
+## Account recovery boundary
+
+Password recovery keeps hashed, address- and session-version-bound reset intent in platform metadata. HTTP handlers validate bounded JSON and public request budgets; the recovery service owns token generation, bounded asynchronous mail and password hashing. Storage commits token consumption, password replacement, session revocation and pending account-link removal atomically. No user database is opened or changed during recovery. SMTP failure cannot roll back a committed reset.
+
+See [password recovery](/api-reference/password-recovery) for the API contract and [configuration](/guides/configuration) for independently enabling verification and recovery.

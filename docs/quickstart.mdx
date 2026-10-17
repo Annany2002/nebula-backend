@@ -1,108 +1,57 @@
 ---
-title: Quick Start
-description: "Get Nebula running in minutes"
+title: Quick start
+description: "Run the API locally and test account email workflows"
 ---
 
-# Quick Start Guide
+# Quick start
 
-Follow these steps to get Nebula Backend up and running on your local machine.
+Use the Go version in `go.mod` and a C compiler for the SQLite CGO driver, or run the backend through Docker.
 
-## Prerequisites
-
-<CardGroup cols={2}>
-  <Card title="Go 1.24.1+" icon="golang">
-    Required for local development, along with a C compiler for the SQLite driver
-  </Card>
-  <Card title="Docker" icon="docker">
-    Required for containerized deployment
-  </Card>
-</CardGroup>
-
-## Installation
-
-<Steps>
-  <Step title="Clone the Repository">
-    ```bash
-    git clone https://github.com/Annany2002/nebula-backend.git
-    cd nebula-backend
-    ```
-  </Step>
-  
-  <Step title="Configure Environment">
-    Copy the example environment file and configure it:
-    
-    ```bash
-    cp .env.example .env
-    ```
-    
-    Edit `.env` with your settings:
-    
-    ```bash
-    # CRITICAL: Set a strong, unique secret
-    JWT_SECRET=your-super-secret-key-change-this
-    
-    # Server configuration
-    SERVER_PORT=8080
-    
-    # CORS origins (space-separated)
-    ALLOWED_ORIGINS=http://localhost:3000 http://localhost:5173
-    
-    # JWT expiration in hours
-    JWT_EXPIRATION_HOURS=24
-    ```
-    
-    <Warning>
-      Never commit your `.env` file to version control. Always use a strong, unique `JWT_SECRET` in production.
-    </Warning>
-  </Step>
-  
-  <Step title="Run with Docker Compose">
-    Start all services with a single command:
-    
-    ```bash
-    docker compose up --build
-    ```
-    
-    This starts:
-    - **Backend API** on port `8080`
-    - **Documentation** on port `3000`
-  </Step>
-</Steps>
-
-## Verify Installation
-
-Test that the API is running:
-
-<CodeGroup>
-```bash cURL
-curl http://localhost:8080/ping
-```
-
-```bash Expected Response
-pong
-```
-</CodeGroup>
-
-Check the health endpoint:
+## Run with Go
 
 ```bash
-curl http://localhost:8080/health
-# Returns: 200 OK
+git clone https://github.com/Annany2002/nebula-backend.git
+cd nebula-backend
+cp .env.example .env
+# Set a strong development JWT_SECRET and your frontend ALLOWED_ORIGINS.
+make run
 ```
 
-## Next Steps
+The API listens on `http://localhost:8080`. Verification and password recovery are disabled by default; neither requires SMTP credentials while disabled.
 
-<CardGroup cols={2}>
-  <Card title="Create an Account" icon="user-plus" href="/api-reference/authentication">
-    Register and authenticate users
-  </Card>
-  <Card title="Create a Database" icon="database" href="/api-reference/databases">
-    Set up your first database
-  </Card>
-  <Card title="Define Schema" icon="table" href="/api-reference/schemas">
-    Create tables with custom schemas
-  </Card>
-  <Card title="CRUD Operations" icon="arrows-rotate" href="/api-reference/records">
-    Create, read, update, delete records
-  </Card>
-</CardGroup>
+```bash
+curl http://localhost:8080/ping
+# pong
+curl -i http://localhost:8080/health
+# HTTP 200 with an empty body
+```
+
+## Run with Docker
+
+```bash
+docker compose up --build backend
+```
+
+The API binds to port 8080 using the example environment. The optional Compose documentation service uses port 3000, which conflicts with the frontend's default port. Start it separately or use `npx mint@4.2.984 dev --port 3002` from `docs/`. Configure production ports and persistent storage explicitly; see [deployment](/guides/deployment).
+
+## Test account email locally
+
+Stop any backend already using port 8080, then run:
+
+```bash
+./scripts/dev-email.sh
+```
+
+This starts the backend with verification and password recovery enabled, isolated accounts and an authenticated TLS Mailpit inbox at `http://localhost:8025`. It does not edit `.env`, normal local data or system trust, and it captures mail instead of sending it externally.
+
+Start the [Nebula frontend](https://github.com/Annany2002/nebula-frontend) on port 3000 with `VITE_BACKEND_URL=http://localhost:8080`. In a workspace containing all three repositories, `./dev.sh --email` starts the API, frontend and inbox together.
+
+Sign up, confirm the captured email, sign in, then choose **Forgot password?** to request and complete a reset. Reopen the original email link after refreshing a cleaned confirmation/reset page. See [password recovery](/api-reference/password-recovery) for expiry, session revocation and retry behavior.
+
+## Next steps
+
+- [Authentication and verification](/api-reference/authentication)
+- [Password recovery](/api-reference/password-recovery)
+- [Database management](/api-reference/databases)
+- [Configuration and production SMTP](/guides/configuration)
+- [Documentation preview and publishing](/guides/documentation)

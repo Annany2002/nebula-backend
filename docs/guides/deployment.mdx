@@ -11,31 +11,15 @@ Deploy Nebula using Docker, Docker Compose, or Kubernetes.
 
 The easiest way to run Nebula locally or in development.
 
-<Steps>
-  <Step title="Configure environment">
-    ```bash
-    cp .env.example .env
-    # Edit .env with your settings
-    ```
-  </Step>
-  
-  <Step title="Start services">
-    ```bash
-    docker compose up --build
-    ```
-    
-    This starts:
-    - **Backend API** on port `8080`
-    - **Documentation** on port `3000`
-  </Step>
-  
-  <Step title="Verify">
-    ```bash
-    curl http://localhost:8080/ping
-    # Returns: pong
-    ```
-  </Step>
-</Steps>
+```bash
+cp .env.example .env
+# Set JWT_SECRET and explicit ALLOWED_ORIGINS.
+docker compose up --build backend
+curl http://localhost:8080/ping
+# pong
+```
+
+The optional Compose documentation preview runs on port 3000, which conflicts with the frontend's default port. Start it separately or use port 3002 for a Mintlify preview. The API uses the port configured in `.env`.
 
 ### Stop Services
 
@@ -70,19 +54,20 @@ Kubernetes deployments require your own manifests; this repository does not incl
 
 ### Required Resources
 
-| Resource | Purpose |
-|----------|---------|
-| `Deployment` | Run backend pods |
-| `Service` | Internal networking |
-| `Ingress` | External access + TLS |
-| `PersistentVolumeClaim` | SQLite data storage |
-| `Secret` | JWT secret, credentials |
-| `ConfigMap` | Non-sensitive config |
+| Resource                | Purpose                 |
+| ----------------------- | ----------------------- |
+| `Deployment`            | Run backend pods        |
+| `Service`               | Internal networking     |
+| `Ingress`               | External access + TLS   |
+| `PersistentVolumeClaim` | SQLite data storage     |
+| `Secret`                | JWT secret, credentials |
+| `ConfigMap`             | Non-sensitive config    |
 
 ### Data Persistence
 
 <Warning>
-  SQLite data **must** be stored on a Persistent Volume. Mount it at `/app/data` in the container.
+  SQLite data **must** be stored on a Persistent Volume. Mount it at `/app/data`
+  in the container.
 </Warning>
 
 ```yaml
@@ -100,15 +85,21 @@ volumeMounts:
 
 <AccordionGroup>
   <Accordion title="Scaling">
-    SQLite limits horizontal scaling due to single-writer constraints. For high-load production, migrate to PostgreSQL.
+    Run one backend process per metadata/data directory. Backup and database
+    lifecycle locks are process-local; replicas sharing the same files are not
+    supported. PostgreSQL is not a configurable storage backend in this release.
   </Accordion>
-  
-  <Accordion title="Volume Type">
-    Use `ReadWriteOnce` (RWO) volumes like EBS. For multi-node writes, consider EFS or a shared filesystem.
-  </Accordion>
-  
+
+<Accordion title="Volume Type">
+  Use persistent block storage with local filesystem locking and mount it to one
+  backend pod. Do not place SQLite WAL files on EFS/NFS or use a shared
+  filesystem to enable multi-node writes. Preserve metadata, tenant databases
+  and retained snapshots together.
+</Accordion>
+
   <Accordion title="TLS/SSL">
-    Terminate TLS at the Ingress controller. Use cert-manager for automatic certificate management.
+    Terminate TLS at the Ingress controller. Use cert-manager for automatic
+    certificate management.
   </Accordion>
 </AccordionGroup>
 
@@ -122,6 +113,9 @@ volumeMounts:
 - Preserve SQLite data on persistent storage.
 - Export and verify backups before destructive changes.
 - Monitor logs, disk space, and errors.
+- Run one backend process per data directory and retain an off-host backup.
+- Keep verification and password recovery disabled until compatible frontend routes and authenticated SMTP are deployed. See [configuration](/guides/configuration).
+- On the existing VPS, bind the backend to port 8085 and restart only that process when preserving its Cloudflare Quick Tunnel URL. Never overwrite runtime data or environment files during source synchronization.
 
 ## Public documentation
 
