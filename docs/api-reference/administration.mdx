@@ -1,0 +1,92 @@
+---
+title: "Platform administration"
+description: "Read-only platform metadata with explicit administrator authorization."
+---
+
+These endpoints require a valid **Bearer JWT** belonging to a platform administrator. Ordinary user JWTs return **403**; API keys are rejected with **401**, including keys owned by an administrator. Existing account-verification and session-revocation checks still apply.
+
+Admin membership is checked in the metadata database on every request, rather than stored in a JWT. Revocation applies to subsequent requests without logging out or restarting the backend. Membership grants no additional access to other users' databases through ordinary data routes.
+
+## Provision an administrator
+
+Starting the backend creates the membership table but **does not promote any account**. Signup, profile updates, request headers and JWT role claims cannot grant administrator access. No HTTP endpoint changes membership.
+
+A trusted server operator can build the CLI and explicitly grant an existing account access:
+
+```bash
+go build -o bin/nebula-admin ./cmd/admin
+./bin/nebula-admin --metadata-db ./data/metadata.db --user-id '<existing-account-id>' grant
+```
+
+Use the account ID returned by the existing account profile endpoint, not its email address. Supply the actual metadata database path if your deployment uses a different directory or filename. The CLI opens only an existing database and requires the admin schema to have been initialized by the updated backend; it never creates a new database or runs startup recovery. It does not load `.env` or require SMTP credentials.
+
+To revoke access:
+
+```bash
+./bin/nebula-admin --metadata-db ./data/metadata.db --user-id '<existing-account-id>' revoke
+```
+
+Grants and revocations are idempotent. Unknown accounts are rejected. The operator must already have filesystem access to the metadata database; there is no automatic email-based or first-user bootstrap. Deleting an account removes its membership.
+
+## List users
+
+```http
+GET /api/v1/admin/users?limit=20&offset=0
+Authorization: Bearer <admin-jwt>
+```
+
+```json
+{
+  "users": [
+    {
+      "user_id": "<account-id>",
+      "username": "builder",
+      "email": "builder@example.com",
+      "created_at": "2026-10-17T09:00:00Z",
+      "email_verified": false,
+      "verification_required": false,
+      "role": "user",
+      "database_count": 2
+    }
+  ],
+  "pagination": { "total": 1, "limit": 20, "offset": 0 }
+}
+```
+
+`limit` defaults to **20** and accepts **1–100**. `offset` defaults to **0** and accepts **0–1,000,000**. Values must contain decimal digits; duplicate, unknown, malformed and out-of-range parameters return **400** with `code: "invalid_admin_query"`.
+
+Results are ordered by account creation time descending, then user ID ascending. The total and page use the same metadata snapshot. An offset beyond the total returns `users: []` with the unchanged total. Offset pages are separate snapshots; concurrent registrations may shift later pages.
+
+## User details
+
+```http
+GET /api/v1/admin/users/<account-id>
+Authorization: Bearer <admin-jwt>
+```
+
+Returns `{ "user": { ... } }` using exactly the same fields as the list. Missing accounts return **404** with `code: "user_not_found"`. Query parameters are not accepted.
+
+## Platform statistics
+
+```http
+GET /api/v1/admin/stats
+Authorization: Bearer <admin-jwt>
+```
+
+```json
+{
+  "stats": { "total_users": 12, "total_databases": 18 }
+}
+```
+
+Counts reflect registered metadata rows, not tenant-file health. These reads do not open tenant databases or scan their tables. Query parameters are not accepted.
+
+## Security and limits
+
+- Responses use `Cache-Control: no-store`, including authentication and authorization errors.
+- Only the documented account fields are selected. Password hashes, API credentials, token digests, session versions, pending email addresses and filesystem paths are excluded.
+- Authorization and metadata queries have a shared three-second context deadline and inherit request cancellation.
+- Membership lookup failures deny access with **503** and `code: "admin_unavailable"`. Read failures return a generic **500**, without database error details.
+- This stage includes no suspension, activation, deletion, impersonation, tenant-data browsing, admin web interface or SDK admin module.
+
+Use [OWASP's authorization guidance](https://cheatsheetseries.owasp.org/cheatsheets/Authorization_Cheat_Sheet.html) when extending the route group: deny access by default and check permissions on every request.
