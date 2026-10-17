@@ -5,11 +5,15 @@ import "time"
 
 // User defines the structure for user data in the DB
 type UserMetadata struct {
-	UserId       string    `json:"userId"`
-	Username     string    `json:"username"`
-	Email        string    `json:"email"`
-	PasswordHash string    `json:"-"`
-	CreatedAt    time.Time `json:"createdAt"`
+	SessionVersion       int       `json:"-"`
+	UserId               string    `json:"userId"`
+	Username             string    `json:"username"`
+	Email                string    `json:"email"`
+	PasswordHash         string    `json:"-"`
+	CreatedAt            time.Time `json:"createdAt"`
+	EmailVerified        bool      `json:"email_verified"`
+	VerificationRequired bool      `json:"verification_required"`
+	PendingEmail         string    `json:"pending_email,omitempty"`
 }
 
 // DatabaseMetadata define the structure for user's databases

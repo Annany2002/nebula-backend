@@ -11,8 +11,10 @@ import (
 	"github.com/Annany2002/nebula-backend/api/models"
 	"github.com/Annany2002/nebula-backend/config"
 	"github.com/Annany2002/nebula-backend/internal/auth" // Import internal auth logic
+	"github.com/Annany2002/nebula-backend/internal/email"
 	"github.com/Annany2002/nebula-backend/internal/logger"
 	"github.com/Annany2002/nebula-backend/internal/storage" // Import storage functions/errors
+	"github.com/Annany2002/nebula-backend/internal/verification"
 )
 
 var (
@@ -21,16 +23,23 @@ var (
 
 // AuthHandler holds dependencies for authentication handlers.
 type AuthHandler struct {
-	DB  *sql.DB        // Metadata DB connection pool
-	Cfg *config.Config // Application configuration
+	Verification *verification.Service
+	DB           *sql.DB        // Metadata DB connection pool
+	Cfg          *config.Config // Application configuration
 	// Add AuthService interface later if needed
 }
 
 // NewAuthHandler creates a new AuthHandler with dependencies.
 func NewAuthHandler(db *sql.DB, cfg *config.Config) *AuthHandler {
+	return NewAuthHandlerWithSender(db, cfg, email.NewSMTP(&cfg.Email.SMTP))
+}
+
+// NewAuthHandlerWithSender shares account verification with an injectable delivery boundary.
+func NewAuthHandlerWithSender(db *sql.DB, cfg *config.Config, sender email.Sender) *AuthHandler {
 	return &AuthHandler{
-		DB:  db,
-		Cfg: cfg,
+		Verification: verification.New(db, &cfg.Email, sender),
+		DB:           db,
+		Cfg:          cfg,
 	}
 }
 
@@ -39,12 +48,18 @@ func (h *AuthHandler) Signup(c *gin.Context) {
 	var req models.SignupRequest // Use DTO from api/models
 	uuid := uuid.New().String()
 
-	if err := c.ShouldBindJSON(&req); err != nil {
-		customLog.Warnf("Signup binding error: %v", err)
-		_ = c.Error(err) // Attach the binding error
+	if !decodeAccountBody(c, &req, false) {
 		return
 	}
 
+	if !verification.ValidateEmail(req.Email) {
+		c.JSON(400, gin.H{"error": "Invalid email address", "code": "invalid_email"})
+		return
+	}
+	if len(req.Password) > 72 {
+		c.JSON(400, gin.H{"error": "Password must be at most 72 UTF-8 bytes", "code": "invalid_password"})
+		return
+	}
 	// Hash the password using the internal auth function
 	hashedPassword, err := auth.HashPassword(req.Password)
 	if err != nil {
@@ -53,6 +68,19 @@ func (h *AuthHandler) Signup(c *gin.Context) {
 		return
 	}
 
+	if h.Cfg.Email.Enabled {
+		if err = storage.CreateUnverifiedUser(c.Request.Context(), h.DB, uuid, req.Username, req.Email, hashedPassword); err != nil {
+			_ = c.Error(err)
+			return
+		}
+		delivery := "sent"
+		if err = h.Verification.Send(c.Request.Context(), uuid, req.Email, false); err != nil {
+			delivery = "unconfirmed"
+			customLog.Warn("Signup verification delivery was not confirmed")
+		}
+		c.JSON(http.StatusCreated, gin.H{"user_id": uuid, "message": "Account created. Verify your email before signing in.", "verification_required": true, "verification_delivery": delivery})
+		return
+	}
 	// Create user using the storage function
 	user_id, err := storage.CreateUser(c.Request.Context(), h.DB, uuid, req.Username, req.Email, hashedPassword)
 	if err != nil {
@@ -69,10 +97,8 @@ func (h *AuthHandler) Signup(c *gin.Context) {
 func (h *AuthHandler) Login(c *gin.Context) {
 	var req models.LoginRequest
 
-	if err := c.ShouldBindJSON(&req); err != nil {
-		customLog.Warnf("Login binding error: %v", err)
-		_ = c.Error(err) // Attach binding error
-		return           // Let middleware handle
+	if !decodeAccountBody(c, &req, false) {
+		return // Let middleware handle
 	}
 
 	user, err := storage.FindUserByEmail(c.Request.Context(), h.DB, req.Email)
@@ -89,8 +115,12 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return // Let middleware handle
 	}
 
+	if user.VerificationRequired && !user.EmailVerified {
+		c.JSON(403, gin.H{"error": "Verify your email before signing in", "code": "email_verification_required"})
+		return
+	}
 	// ... (generate JWT and return success) ...
-	tokenString, err := auth.GenerateJWT(user.UserId, h.Cfg.JWTSecret, h.Cfg.JWTExpiration)
+	tokenString, err := auth.GenerateSessionJWT(user.UserId, h.Cfg.JWTSecret, h.Cfg.JWTExpiration, user.SessionVersion)
 	if err != nil {
 		customLog.Warnf("Failed to generate JWT for user %s: %v", user.UserId, err)
 		_ = c.Error(err) // Attach JWT generation error
@@ -130,10 +160,13 @@ func (h *AuthHandler) GetCurrentUser(c *gin.Context) {
 
 	// Return user profile without password hash
 	c.JSON(http.StatusOK, models.UserProfileResponse{
-		UserId:    user.UserId,
-		Username:  user.Username,
-		Email:     user.Email,
-		CreatedAt: user.CreatedAt.Format("2006-01-02T15:04:05Z"),
+		EmailVerified:        user.EmailVerified,
+		VerificationRequired: user.VerificationRequired,
+		PendingEmail:         user.PendingEmail,
+		UserId:               user.UserId,
+		Username:             user.Username,
+		Email:                user.Email,
+		CreatedAt:            user.CreatedAt.Format("2006-01-02T15:04:05Z"),
 	})
 }
 
@@ -142,9 +175,7 @@ func (h *AuthHandler) UpdateCurrentUser(c *gin.Context) {
 	userId := c.MustGet("userId").(string)
 
 	var req models.UpdateProfileRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		customLog.Warnf("Update profile binding error for userId %s: %v", userId, err)
-		_ = c.Error(err)
+	if !decodeAccountBody(c, &req, false) {
 		return
 	}
 
@@ -154,6 +185,13 @@ func (h *AuthHandler) UpdateCurrentUser(c *gin.Context) {
 		return
 	}
 
+	if req.Email != "" && !verification.ValidateEmail(req.Email) {
+		c.JSON(400, gin.H{"error": "Invalid email address", "code": "invalid_email"})
+		return
+	}
+	if req.Email != "" && h.requestEmailChange(c, userId, req) {
+		return
+	}
 	// Update user profile
 	err := storage.UpdateUser(c.Request.Context(), h.DB, userId, req.Username, req.Email)
 	if err != nil {
@@ -174,10 +212,13 @@ func (h *AuthHandler) UpdateCurrentUser(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"message": "Profile updated successfully",
 		"user": models.UserProfileResponse{
-			UserId:    updatedUser.UserId,
-			Username:  updatedUser.Username,
-			Email:     updatedUser.Email,
-			CreatedAt: updatedUser.CreatedAt.Format("2006-01-02T15:04:05Z"),
+			EmailVerified:        updatedUser.EmailVerified,
+			VerificationRequired: updatedUser.VerificationRequired,
+			PendingEmail:         updatedUser.PendingEmail,
+			UserId:               updatedUser.UserId,
+			Username:             updatedUser.Username,
+			Email:                updatedUser.Email,
+			CreatedAt:            updatedUser.CreatedAt.Format("2006-01-02T15:04:05Z"),
 		},
 	})
 }

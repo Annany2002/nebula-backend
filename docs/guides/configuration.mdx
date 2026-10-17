@@ -43,6 +43,50 @@ Nebula is configured via environment variables. Create a `.env` file or set them
   ```
 </ParamField>
 
+### Email Verification
+
+Email verification is opt-in. `EMAIL_VERIFICATION_ENABLED=false` preserves the existing registration flow and requires no SMTP credentials. Enabling it validates every required mail setting at startup; insecure or incomplete configuration prevents the server from starting.
+
+| Variable                         | Default    | When verification is enabled                                                                                                   |
+| -------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `EMAIL_VERIFICATION_ENABLED`     | `false`    | Set to `true` after completing the rollout below                                                                               |
+| `APP_PUBLIC_URL`                 | None       | Frontend HTTPS origin; no path, query, fragment, or embedded credentials. HTTP allowed only for `localhost` and `127.0.0.1`    |
+| `EMAIL_VERIFICATION_TTL_MINUTES` | `30`       | Integer from 5 to 120                                                                                                          |
+| `SMTP_HOST`                      | None       | SMTP server hostname                                                                                                           |
+| `SMTP_PORT`                      | `587`      | Port from 1 to 65535                                                                                                           |
+| `SMTP_USERNAME`                  | None       | Authentication username                                                                                                        |
+| `SMTP_PASSWORD`                  | None       | Authentication password; configure through environment secrets                                                                 |
+| `SMTP_FROM`                      | None       | Plain sender mailbox; display names are not accepted                                                                           |
+| `SMTP_TLS_MODE`                  | `starttls` | `starttls` for STARTTLS, or `tls` for implicit TLS (commonly port 465)                                                         |
+| `SMTP_CA_FILE`                   | None       | Optional PEM CA bundle for private SMTP certificates; extends system trust without disabling certificate/hostname verification |
+
+SMTP authentication is sent only over TLS with verified certificates. Plaintext delivery and STARTTLS downgrade are rejected. Each SMTP conversation has a 10-second deadline and respects request cancellation. Mail settings reject header line breaks; credentials and message tokens are not logged by the delivery adapter.
+
+<Steps>
+  <Step title="Deploy compatible clients">
+    Deploy the frontend `/verify-email` page, pending-account signup/login
+    handling, and confirmed email-change flow. Update SDK callers to handle
+    verification statuses and `202` email-change responses. Leave verification
+    disabled during this stage.
+  </Step>
+  <Step title="Configure and test SMTP">
+    Set a trusted frontend origin and your provider's SMTP credentials in the
+    deployment environment. Confirm the sender mailbox is authorized with your
+    provider. Test signup, resend, expired links, and an email change against a
+    staging deployment.
+  </Step>
+  <Step title="Enable new-account verification">
+    Set `EMAIL_VERIFICATION_ENABLED=true` and restart only the backend. Newly
+    registered accounts must verify before login or protected API access.
+    Existing accounts remain accessible without falsely reporting that their
+    addresses are verified.
+  </Step>
+</Steps>
+
+Verification requirements, token hashes, session versions, and send limits persist in the metadata database. Turning delivery off does not unlock already restricted accounts or bypass confirmation for their address changes; existing valid links can still be confirmed. Preserve the metadata database during rollout and rollback.
+
+Resend work uses four bounded in-process workers rather than a durable queue. A successful acknowledgement is not a delivery guarantee; clients can retry after interrupted delivery. Signup and resend share 10 requests per client IP per 15 minutes, and account sending is limited to five requests per hour with a 60-second cooldown. In the existing tunnel deployment, client addresses are accepted from `CF-Connecting-IP` only when the connection comes from a loopback Cloudflare connector; other proxy topologies share the proxy's request budget unless adapted explicitly.
+
 ### CORS
 
 <ParamField path="ALLOWED_ORIGINS">
@@ -62,6 +106,18 @@ SERVER_PORT=8080
 # Authentication
 JWT_SECRET=change-this-to-a-very-long-and-secure-random-string
 JWT_EXPIRATION_HOURS=24
+
+# Enable only after SMTP and the frontend verification flow are ready.
+EMAIL_VERIFICATION_ENABLED=false
+APP_PUBLIC_URL=http://localhost:3000
+EMAIL_VERIFICATION_TTL_MINUTES=30
+SMTP_HOST=
+SMTP_PORT=587
+SMTP_USERNAME=
+SMTP_PASSWORD=
+SMTP_FROM=
+SMTP_TLS_MODE=starttls
+SMTP_CA_FILE=
 
 # CORS
 ALLOWED_ORIGINS=http://localhost:3000 http://localhost:5173

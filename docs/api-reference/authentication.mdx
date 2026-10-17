@@ -20,7 +20,7 @@ Create a new user account.
 </ParamField>
 
 <ParamField body="password" type="string" required>
-  Password (minimum 8 characters)
+  Password (minimum 8 characters, maximum 72 UTF-8 bytes)
 </ParamField>
 
 <RequestExample>
@@ -51,6 +51,19 @@ curl -X POST http://localhost:8080/auth/signup \
 </ResponseExample>
 
 ---
+
+With `EMAIL_VERIFICATION_ENABLED=true`, signup creates a restricted account and attempts SMTP delivery:
+
+```json
+{
+  "user_id": "user-uuid",
+  "message": "Account created. Verify your email before signing in.",
+  "verification_required": true,
+  "verification_delivery": "sent"
+}
+```
+
+`verification_delivery` is `sent` when the SMTP server accepts the message, or `unconfirmed` when delivery cannot be confirmed. Neither value guarantees inbox delivery. On failure the account remains restricted; request another email after the send cooldown. Signup never returns a verification token or a login session.
 
 ## Login
 
@@ -83,7 +96,9 @@ curl -X POST http://localhost:8080/auth/login \
     "userId": "user-uuid",
     "email": "user@example.com",
     "username": "myusername",
-    "createdAt": "2026-10-02T12:00:00Z"
+    "createdAt": "2026-10-02T12:00:00Z",
+    "email_verified": true,
+    "verification_required": true
   },
   "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
 }
@@ -98,9 +113,65 @@ curl -X POST http://localhost:8080/auth/login \
 
 ---
 
+Correct credentials for an account that still requires verification return `403` with `code: "email_verification_required"`. Protected endpoints also enforce this requirement for JWT and API-key authentication, even if a token or key already exists. Existing accounts retain access without being marked verified; their profiles initially report `email_verified: false` and `verification_required: false`.
+
+## Verify Email
+
+**Endpoint:** `POST /auth/verify-email` (public)
+
+Send the token from the email link in a JSON body:
+
+```bash
+curl -X POST http://localhost:8080/auth/verify-email \
+  -H 'Content-Type: application/json' \
+  -d '{"token":"<token-from-email>"}'
+```
+
+Successful verification returns `200`:
+
+```json
+{"message":"Email verified successfully. Sign in to continue."}
+```
+
+Tokens are single-use and expire after 30 minutes by default. Malformed, expired, previously used, and superseded email-change tokens return `400` with `code: "invalid_verification_token"`. An email-change target claimed by another account returns `409` with `code: "email_conflict"`; the current email remains unchanged. Storage failures return `500` with `code: "verification_unavailable"`.
+
+The endpoint issues no JWT. Sign in after confirmation. It can finish previously issued tokens even if email delivery is subsequently disabled.
+
+<Note>
+  Links use `APP_PUBLIC_URL/verify-email#token=...`. The frontend must read and remove the fragment, then submit the token in a POST body. Do not move tokens into URL queries, logs, or analytics. Deploy this frontend flow before enabling verification.
+</Note>
+
+## Resend Verification
+
+**Endpoint:** `POST /auth/resend-verification` (public)
+
+```bash
+curl -X POST http://localhost:8080/auth/resend-verification \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"user@example.com"}'
+```
+
+Well-formed known and unknown addresses receive the same `202` response when worker capacity is available:
+
+```json
+{"message":"If this address is eligible, a verification email will be sent."}
+```
+
+Delivery is attempted asynchronously only for eligible unverified addresses. This acknowledgement does not guarantee delivery. Work is bounded to four concurrent requests and is not a durable mail queue; request again if a restart interrupts delivery. Verified and unknown addresses receive no email.
+
+When verification delivery is disabled, the endpoint returns `503` with `code: "verification_disabled"`. When all delivery workers are occupied, it returns `503` with `code: "verification_busy"`, regardless of account existence.
+
+## Limits and Address Policy
+
+With verification enabled, signup and resend share a persistent limit of 10 requests per client IP in 15 minutes. Exceeding it returns `429` and `Retry-After: 900`. Account email delivery has a 60-second cooldown and a maximum of five requests per hour; both survive server restarts. Public resend responses do not expose account-specific limits. Existing global IP limits also apply.
+
+Verification and resend require `application/json`, accept one JSON object with no unknown fields, and limit request bodies to 4 KiB. Unsupported media types return `415`, oversized bodies return `413`, and invalid payloads return `400`.
+
+Addresses must be plain ASCII mailboxes, at most 254 bytes, without display names or header line breaks. Existing exact, case-sensitive address comparisons are retained. No provider-specific dot/plus normalization or disposable-address filtering is applied.
+
 ## Using the Token
 
-User responses never contain passwords or password hashes. Sign up does not issue a token; log in after creating an account.
+User responses never contain passwords or password hashes. Sign up and verification do not issue a token; log in after completing any required email confirmation.
 
 Include the JWT token in subsequent API requests:
 

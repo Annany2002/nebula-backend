@@ -53,9 +53,15 @@ func CheckPasswordHash(password, hash string) bool {
 
 // GenerateJWT creates a signed JWT string for a given userID
 func GenerateJWT(userID, jwtSecret string, jwtExpiration time.Duration) (string, error) {
+	return GenerateSessionJWT(userID, jwtSecret, jwtExpiration, 0)
+}
+
+// GenerateSessionJWT binds a session to the account version used for identity changes.
+func GenerateSessionJWT(userID, jwtSecret string, jwtExpiration time.Duration, version int) (string, error) {
 	// Set custom and standard claims
 	claims := models.CustomClaims{ // Using the DTO struct from api/models
-		UserID: userID,
+		UserID:         userID,
+		SessionVersion: version,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(jwtExpiration)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
@@ -79,6 +85,23 @@ func GenerateJWT(userID, jwtSecret string, jwtExpiration time.Duration) (string,
 
 // ValidateJWT parses and validates a JWT string, returning the UserID if valid.
 func ValidateJWT(tokenString, jwtSecret string) (string, error) {
+	id, _, err := ValidateSessionJWT(tokenString, jwtSecret)
+	return id, err
+}
+
+// ValidateSessionJWT validates the signed account identity and session version.
+func ValidateSessionJWT(tokenString, jwtSecret string) (string, int, error) {
+	claims, err := validateJWT(tokenString, jwtSecret)
+	if err != nil {
+		return "", 0, err
+	}
+	if claims.SessionVersion < 0 {
+		return "", 0, ErrTokenClaimsInvalid
+	}
+	return claims.UserID, claims.SessionVersion, nil
+}
+
+func validateJWT(tokenString, jwtSecret string) (*models.CustomClaims, error) {
 	claims := &models.CustomClaims{} // Use pointer to the DTO struct
 
 	token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
@@ -97,28 +120,28 @@ func ValidateJWT(tokenString, jwtSecret string) (string, error) {
 		customLog.Warnf("ValidateJWT: Token parsing error: %v", err)
 		switch {
 		case errors.Is(err, jwt.ErrTokenMalformed):
-			return "", ErrTokenMalformed
+			return nil, ErrTokenMalformed
 		case errors.Is(err, jwt.ErrTokenExpired), errors.Is(err, jwt.ErrTokenNotValidYet):
-			return "", ErrTokenExpired
+			return nil, ErrTokenExpired
 		case errors.Is(err, ErrUnexpectedSigningMethod):
-			return "", err
+			return nil, err
 		default:
-			return "", ErrTokenInvalid
+			return nil, ErrTokenInvalid
 		}
 	}
 
 	// Check if the token and claims are valid overall
 	if !token.Valid {
 		customLog.Warnf("ValidateJWT: Invalid token marked by library")
-		return "", ErrTokenInvalid
+		return nil, ErrTokenInvalid
 	}
 
 	// Check if userID is present in claims (should be, based on our generation logic)
 	if claims.UserID == "" {
 		customLog.Warnf("ValidateJWT: UserID missing or invalid in token claims")
-		return "", ErrTokenClaimsInvalid
+		return nil, ErrTokenClaimsInvalid
 	}
 
 	// Token is valid! Return the UserID.
-	return claims.UserID, nil
+	return claims, nil
 }

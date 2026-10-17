@@ -51,36 +51,26 @@ func CreateUser(ctx context.Context, db *sql.DB, user_id, username, email, passw
 	return user_id, nil
 }
 
-// FindUserByEmail retrieves a user by their email address.
-func FindUserByEmail(ctx context.Context, db *sql.DB, email string) (*domain.UserMetadata, error) {
-	sqlStatement := `SELECT * FROM users WHERE email = ? LIMIT 1`
-	row := db.QueryRowContext(ctx, sqlStatement, email)
+const userSelect = `SELECT u.user_id,u.username,u.email,u.password_hash,u.created_at,COALESCE(v.verified_email=u.email,0),COALESCE(v.required,0),COALESCE(v.pending_email,''),COALESCE(v.session_version,0) FROM users u LEFT JOIN account_email_verifications v ON v.user_id=u.user_id `
 
-	var user domain.UserMetadata
-	err := row.Scan(&user.UserId, &user.Username, &user.Email, &user.PasswordHash, &user.CreatedAt)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, ErrUserNotFound
-		}
-		customLog.Warnf("Storage: Failed to find user by email %s: %v", email, err)
-		return nil, fmt.Errorf("database error finding user: %w", err)
-	}
-	return &user, nil
+// FindUserByEmail retrieves the account and its current verification state.
+func FindUserByEmail(ctx context.Context, db *sql.DB, email string) (*domain.UserMetadata, error) {
+	return scanUser(db.QueryRowContext(ctx, userSelect+`WHERE u.email=? LIMIT 1`, email))
 }
 
-// FindUserByUserId finds a user with user_id
-func FindUserByUserId(ctx context.Context, db *sql.DB, user_id string) (*domain.UserMetadata, error) {
-	sqlStatement := `SELECT * FROM users WHERE user_id = ? LIMIT 1`
-	row := db.QueryRowContext(ctx, sqlStatement, user_id)
+// FindUserByUserId retrieves the account and its current verification state.
+func FindUserByUserId(ctx context.Context, db *sql.DB, id string) (*domain.UserMetadata, error) {
+	return scanUser(db.QueryRowContext(ctx, userSelect+`WHERE u.user_id=? LIMIT 1`, id))
+}
 
+func scanUser(row *sql.Row) (*domain.UserMetadata, error) {
 	var user domain.UserMetadata
-	err := row.Scan(&user.UserId, &user.Username, &user.Email, &user.PasswordHash, &user.CreatedAt)
+	err := row.Scan(&user.UserId, &user.Username, &user.Email, &user.PasswordHash, &user.CreatedAt, &user.EmailVerified, &user.VerificationRequired, &user.PendingEmail, &user.SessionVersion)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrUserNotFound
+	}
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, ErrUserNotFound
-		}
-		customLog.Warnf("Storage: Failed to find user by user_id %s: %v", user_id, err)
-		return nil, fmt.Errorf("database error finding user: %w", err)
+		return nil, fmt.Errorf("account lookup failed: %w", err)
 	}
 	return &user, nil
 }
