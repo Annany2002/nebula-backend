@@ -116,6 +116,10 @@ func ConnectMetadataDB(cfg *config.Config) (*sql.DB, error) {
 		db.Close()
 		return nil, fmt.Errorf("migrate API keys: %w", err)
 	}
+	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_api_keys_owner ON api_keys(api_owner_id,api_database_id)`); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("ensure API key owner index: %w", err)
+	}
 	customLog.Println("Storage: API Keys table ensured.")
 
 	// Ensure 'database_telemetry' table ---

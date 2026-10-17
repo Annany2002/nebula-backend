@@ -9,8 +9,8 @@ import (
 	"github.com/Annany2002/nebula-backend/internal/domain"
 )
 
-// ErrInvalidAdminPage rejects unbounded or negative metadata scans.
-var ErrInvalidAdminPage = errors.New("admin limit must be 1-100 and offset must be 0-1000000")
+// ErrInvalidAdminQuery rejects invalid filters and unbounded metadata scans.
+var ErrInvalidAdminQuery = errors.New("invalid administrator query")
 
 func ensureAdminSchema(db *sql.DB) error {
 	_, err := db.Exec(`CREATE TABLE IF NOT EXISTS platform_admins (
@@ -28,7 +28,9 @@ func ensureAdminSchema(db *sql.DB) error {
 	 target_user_id TEXT NOT NULL,
 	 action TEXT NOT NULL CHECK(action IN ('suspend','activate')),
 	 created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-	);`)
+	);
+	CREATE INDEX IF NOT EXISTS idx_account_events_target ON platform_account_events(target_user_id,event_id DESC);
+	CREATE INDEX IF NOT EXISTS idx_account_events_actor ON platform_account_events(actor_user_id,event_id DESC);`)
 	return err
 }
 
@@ -91,42 +93,13 @@ func scanAdminUser(row adminUserScanner) (domain.AdminUser, error) {
 }
 
 // ListAdminUsers reads the total and deterministically ordered page from one snapshot.
-func ListAdminUsers(ctx context.Context, db *sql.DB, limit, offset int) ([]domain.AdminUser, int64, error) {
-	if limit < 1 || limit > 100 || offset < 0 || offset > 1_000_000 {
-		return nil, 0, ErrInvalidAdminPage
-	}
-	tx, err := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+func ListAdminUsers(ctx context.Context, db *sql.DB, limit, offset int, filter AdminUserFilter) ([]domain.AdminUser, int64, error) {
+	where, args, err := adminUserPredicate(filter)
 	if err != nil {
 		return nil, 0, err
 	}
-	defer func() { _ = tx.Rollback() }()
-	var total int64
-	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM users`).Scan(&total); err != nil {
-		return nil, 0, err
-	}
-	rows, err := tx.QueryContext(ctx, adminUserSelect+`ORDER BY u.created_at DESC,u.user_id ASC LIMIT ? OFFSET ?`, limit, offset)
-	if err != nil {
-		return nil, 0, err
-	}
-	defer rows.Close()
-	users := make([]domain.AdminUser, 0, limit)
-	for rows.Next() {
-		user, scanErr := scanAdminUser(rows)
-		if scanErr != nil {
-			return nil, 0, scanErr
-		}
-		users = append(users, user)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, 0, err
-	}
-	if err := rows.Close(); err != nil {
-		return nil, 0, err
-	}
-	if err := tx.Commit(); err != nil {
-		return nil, 0, err
-	}
-	return users, total, nil
+	query := adminPageQuery{countSQL: `SELECT COUNT(*) FROM users u ` + where, selectSQL: adminUserSelect + where + ` ORDER BY u.created_at DESC,u.user_id ASC`, args: args}
+	return readAdminPage(ctx, db, query, limit, offset, scanAdminUser)
 }
 
 // GetAdminUser returns the same safe projection as the list endpoint.

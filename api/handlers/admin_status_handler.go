@@ -22,7 +22,7 @@ func (h *AdminHandler) Activate(c *gin.Context) { h.setAccountStatus(c, false) }
 
 func (h *AdminHandler) setAccountStatus(c *gin.Context, suspended bool) {
 	if c.Request.URL.RawQuery != "" {
-		adminFailure(c, storage.ErrInvalidAdminPage)
+		adminFailure(c, storage.ErrInvalidAdminQuery)
 		return
 	}
 	if !emptyAdminBody(c) {

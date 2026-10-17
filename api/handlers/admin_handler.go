@@ -28,12 +28,13 @@ func NewAdminHandler(db *sql.DB, directory string) *AdminHandler {
 
 // ListUsers returns a bounded page with no credential-bearing account fields.
 func (h *AdminHandler) ListUsers(c *gin.Context) {
-	limit, offset, err := adminPagination(c.Request.URL.RawQuery)
+	values, limit, offset, err := adminListQuery(c.Request.URL.RawQuery, "q", "role", "status")
 	if err != nil {
 		adminFailure(c, err)
 		return
 	}
-	users, total, err := storage.ListAdminUsers(c.Request.Context(), h.db, limit, offset)
+	filter := storage.AdminUserFilter{Query: values.Get("q"), Role: values.Get("role"), Status: values.Get("status")}
+	users, total, err := storage.ListAdminUsers(c.Request.Context(), h.db, limit, offset, filter)
 	if err != nil {
 		adminFailure(c, err)
 		return
@@ -44,7 +45,7 @@ func (h *AdminHandler) ListUsers(c *gin.Context) {
 // GetUser returns an account's safe metadata, without access to its tenant data.
 func (h *AdminHandler) GetUser(c *gin.Context) {
 	if c.Request.URL.RawQuery != "" {
-		adminFailure(c, storage.ErrInvalidAdminPage)
+		adminFailure(c, storage.ErrInvalidAdminQuery)
 		return
 	}
 	user, err := storage.GetAdminUser(c.Request.Context(), h.db, c.Param("user_id"))
@@ -58,7 +59,7 @@ func (h *AdminHandler) GetUser(c *gin.Context) {
 // Stats serializes bounded schema inspections so admin traffic cannot exhaust file handles.
 func (h *AdminHandler) Stats(c *gin.Context) {
 	if c.Request.URL.RawQuery != "" {
-		adminFailure(c, storage.ErrInvalidAdminPage)
+		adminFailure(c, storage.ErrInvalidAdminQuery)
 		return
 	}
 	select {
@@ -77,24 +78,50 @@ func (h *AdminHandler) Stats(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"stats": stats})
 }
 
-func adminPagination(raw string) (int, int, error) {
+// AuditEvents exposes existing suspension/reactivation history to administrators only.
+func (h *AdminHandler) AuditEvents(c *gin.Context) {
+	values, limit, offset, err := adminListQuery(c.Request.URL.RawQuery, "actor_user_id", "target_user_id", "action")
+	if err != nil {
+		adminFailure(c, err)
+		return
+	}
+	filter := storage.AdminAuditFilter{ActorUserID: values.Get("actor_user_id"), TargetUserID: values.Get("target_user_id"), Action: values.Get("action")}
+	events, total, err := storage.ListAdminAuditEvents(c.Request.Context(), h.db, limit, offset, filter)
+	if err != nil {
+		adminFailure(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, models.AdminAuditListResponse{Events: events, Pagination: models.AdminPagination{Total: total, Limit: limit, Offset: offset}})
+}
+
+func adminListQuery(raw string, filters ...string) (url.Values, int, int, error) {
+	if len(raw) > 2048 {
+		return nil, 0, 0, storage.ErrInvalidAdminQuery
+	}
 	values, err := url.ParseQuery(raw)
 	if err != nil {
-		return 0, 0, storage.ErrInvalidAdminPage
+		return nil, 0, 0, storage.ErrInvalidAdminQuery
+	}
+	allowed := map[string]bool{"limit": true, "offset": true}
+	for _, key := range filters {
+		allowed[key] = true
 	}
 	limit, offset := 20, 0
 	for key, entries := range values {
-		if (key != "limit" && key != "offset") || len(entries) != 1 || entries[0] == "" {
-			return 0, 0, storage.ErrInvalidAdminPage
+		if !allowed[key] || len(entries) != 1 || entries[0] == "" {
+			return nil, 0, 0, storage.ErrInvalidAdminQuery
+		}
+		if key != "limit" && key != "offset" {
+			continue
 		}
 		for _, digit := range entries[0] {
 			if digit < '0' || digit > '9' {
-				return 0, 0, storage.ErrInvalidAdminPage
+				return nil, 0, 0, storage.ErrInvalidAdminQuery
 			}
 		}
 		value, parseErr := strconv.Atoi(entries[0])
 		if parseErr != nil {
-			return 0, 0, storage.ErrInvalidAdminPage
+			return nil, 0, 0, storage.ErrInvalidAdminQuery
 		}
 		if key == "limit" {
 			limit = value
@@ -102,7 +129,7 @@ func adminPagination(raw string) (int, int, error) {
 			offset = value
 		}
 	}
-	return limit, offset, nil
+	return values, limit, offset, nil
 }
 
 func adminFailure(c *gin.Context, err error) {
@@ -114,8 +141,8 @@ func adminFailure(c *gin.Context, err error) {
 		status, code, message = http.StatusConflict, "admin_account_protected", "Revoke administrator membership before suspending this account"
 	case errors.Is(err, storage.ErrAdminSessionRevoked):
 		status, code, message = http.StatusUnauthorized, "session_revoked", "Sign in again to continue"
-	case errors.Is(err, storage.ErrInvalidAdminPage):
-		status, code, message = http.StatusBadRequest, "invalid_admin_query", "Use only limit (1-100) and offset (0-1000000) on the users list"
+	case errors.Is(err, storage.ErrInvalidAdminQuery):
+		status, code, message = http.StatusBadRequest, "invalid_admin_query", "Invalid administrator query parameters"
 	case errors.Is(err, storage.ErrUserNotFound):
 		status, code, message = http.StatusNotFound, "user_not_found", "User not found"
 	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):

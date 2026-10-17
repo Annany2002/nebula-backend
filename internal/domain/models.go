@@ -5,6 +5,7 @@ import "time"
 
 // User defines the structure for user data in the DB
 type UserMetadata struct {
+	Role                 string    `json:"-"`
 	SessionVersion       int       `json:"-"`
 	UserId               string    `json:"userId"`
 	Username             string    `json:"username"`

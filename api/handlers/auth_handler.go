@@ -158,6 +158,8 @@ func (h *AuthHandler) FindUser(c *gin.Context) {
 
 // GetCurrentUser returns the profile of the currently authenticated user.
 func (h *AuthHandler) GetCurrentUser(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
+	c.Writer.Header().Add("Vary", "Authorization")
 	userId := c.MustGet("userId").(string)
 
 	user, err := storage.FindUserByUserId(c.Request.Context(), h.DB, userId)
@@ -169,6 +171,7 @@ func (h *AuthHandler) GetCurrentUser(c *gin.Context) {
 
 	// Return user profile without password hash
 	c.JSON(http.StatusOK, models.UserProfileResponse{
+		Role:                 user.Role,
 		EmailVerified:        user.EmailVerified,
 		VerificationRequired: user.VerificationRequired,
 		PendingEmail:         user.PendingEmail,
@@ -221,6 +224,7 @@ func (h *AuthHandler) UpdateCurrentUser(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"message": "Profile updated successfully",
 		"user": models.UserProfileResponse{
+			Role:                 updatedUser.Role,
 			EmailVerified:        updatedUser.EmailVerified,
 			VerificationRequired: updatedUser.VerificationRequired,
 			PendingEmail:         updatedUser.PendingEmail,
