@@ -79,6 +79,8 @@ func SetupRouterWithEmailSender(metaDB *sql.DB, cfg *config.Config, sender email
 	{ /* Routes using authHandler */
 		authRoutes.POST("/signup", middleware.LimitVerificationRequests(metaDB, cfg.Email.Enabled), authHandler.Signup)
 		authRoutes.POST("/login", authHandler.Login)
+		authRoutes.POST("/forgot-password", middleware.LimitPasswordResetRequests(metaDB, cfg.Email.PasswordResetEnabled), authHandler.ForgotPassword)
+		authRoutes.POST("/reset-password", middleware.LimitPasswordResetRequests(metaDB, cfg.Email.PasswordResetEnabled), authHandler.ResetPassword)
 		authRoutes.POST("/verify-email", authHandler.VerifyEmail)
 		authRoutes.POST("/resend-verification", middleware.LimitVerificationRequests(metaDB, cfg.Email.Enabled), authHandler.ResendVerification)
 	}

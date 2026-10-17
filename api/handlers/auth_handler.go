@@ -13,6 +13,7 @@ import (
 	"github.com/Annany2002/nebula-backend/internal/auth" // Import internal auth logic
 	"github.com/Annany2002/nebula-backend/internal/email"
 	"github.com/Annany2002/nebula-backend/internal/logger"
+	"github.com/Annany2002/nebula-backend/internal/recovery"
 	"github.com/Annany2002/nebula-backend/internal/storage" // Import storage functions/errors
 	"github.com/Annany2002/nebula-backend/internal/verification"
 )
@@ -23,6 +24,7 @@ var (
 
 // AuthHandler holds dependencies for authentication handlers.
 type AuthHandler struct {
+	Recovery     *recovery.Service
 	Verification *verification.Service
 	DB           *sql.DB        // Metadata DB connection pool
 	Cfg          *config.Config // Application configuration
@@ -38,6 +40,7 @@ func NewAuthHandler(db *sql.DB, cfg *config.Config) *AuthHandler {
 func NewAuthHandlerWithSender(db *sql.DB, cfg *config.Config, sender email.Sender) *AuthHandler {
 	return &AuthHandler{
 		Verification: verification.New(db, &cfg.Email, sender),
+		Recovery:     recovery.New(db, &cfg.Email, sender),
 		DB:           db,
 		Cfg:          cfg,
 	}

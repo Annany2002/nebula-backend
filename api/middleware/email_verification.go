@@ -50,7 +50,17 @@ func RequireAccountAccess(db *sql.DB) gin.HandlerFunc {
 
 // LimitVerificationRequests uses a persistent budget for public email-sending routes.
 func LimitVerificationRequests(db *sql.DB, enabled bool) gin.HandlerFunc {
+	return limitAccountEmailRequests(db, enabled, "verification")
+}
+
+// LimitPasswordResetRequests shares the persistent public email budget across recovery routes.
+func LimitPasswordResetRequests(db *sql.DB, enabled bool) gin.HandlerFunc {
+	return limitAccountEmailRequests(db, enabled, "password_reset")
+}
+
+func limitAccountEmailRequests(db *sql.DB, enabled bool, purpose string) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		c.Header("Cache-Control", "no-store")
 		if !enabled {
 			c.Next()
 			return
@@ -65,12 +75,12 @@ func LimitVerificationRequests(db *sql.DB, enabled bool) gin.HandlerFunc {
 		digest := sha256.Sum256([]byte(ip))
 		allowed, err := storage.AllowEmailRequest(c.Request.Context(), db, hex.EncodeToString(digest[:]), time.Now())
 		if err != nil {
-			c.AbortWithStatusJSON(503, gin.H{"error": "Verification requests are unavailable", "code": "verification_unavailable"})
+			c.AbortWithStatusJSON(503, gin.H{"error": "Account requests are unavailable", "code": purpose + "_unavailable"})
 			return
 		}
 		if !allowed {
 			c.Header("Retry-After", "900")
-			c.AbortWithStatusJSON(429, gin.H{"error": "Too many verification requests", "code": "verification_rate_limited"})
+			c.AbortWithStatusJSON(429, gin.H{"error": "Too many account requests", "code": purpose + "_rate_limited"})
 			return
 		}
 		c.Next()
