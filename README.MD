@@ -11,7 +11,7 @@ Open-source Backend-as-a-Service built with Go, Gin, and SQLite. Provision user 
 | Area             | Available today                                                                                                                                                     |
 | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Database storage | One SQLite file per user database, a separate platform metadata database, WAL mode, and foreign-key enforcement                                                     |
-| Authentication   | Account signup/login, optional SMTP email verification and password recovery, confirmed email changes, bcrypt passwords, JWT sessions, and database-scoped API keys |
+| Authentication   | Account signup/login, optional SMTP email verification and password recovery, confirmed email changes, GitHub sign-in, profile photos with optional onboarding, bcrypt passwords, JWT sessions, and database-scoped API keys |
 | API keys         | Generate, rotate, inspect prefix/creation metadata, and revoke; one active key per database, hashed at rest                                                         |
 | Schemas          | Create tables with typed columns and foreign keys; add/rename/drop columns and rename tables, including transactional batches of schema alterations                 |
 | Records          | Create/read/update/delete records, column equality filters, pagination, sorting, and field selection                                                                |

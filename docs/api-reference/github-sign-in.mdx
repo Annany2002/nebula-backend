@@ -82,7 +82,7 @@ Successful sign-in returns `200` with the [login response](/api-reference/authen
 
 ## Account resolution and linking
 
-- A previously linked GitHub ID resolves its existing Nebula account. Provider login/email changes do not rewrite the local profile or its verification policy.
+- A previously linked GitHub ID resolves its existing Nebula account. Provider login/email changes do not rewrite the local username, email or verification policy.
 - A new ID with a distinct email creates an ordinary, non-admin account with verified primary-email proof. It has no password credential. Password login fails until the owner separately sets a password through configured recovery.
 - An existing local email, including a match with different ASCII letter casing, returns `409 github_account_conflict`. Matching an email never merges accounts, transfers data or proves ownership of an existing local account.
 - Suspended accounts and accounts with an outstanding local verification requirement cannot acquire a session through this provider.
@@ -98,7 +98,11 @@ To link GitHub to an existing password account, first sign in normally and call 
 
 This returns the same start response but binds the transaction to the owner and session version captured before password reauthentication. Complete the same frontend/browser flow. Linking rejects a GitHub ID already assigned to another account, an account that already has GitHub linked, or a stale/suspended/unverified owner.
 
-Successful linking returns only `200 { "message": "GitHub linked. Sign in again to continue." }`. It adds the identity atomically, increments the session version, and clears pending email and password-reset links. Clear the client's stored JWT and sign in again. Tenant databases, API keys, local password, profile and administrator membership are preserved. There is one GitHub identity per account; replacing, unlinking and account merging are not implemented.
+Successful linking returns only `200 { "message": "GitHub linked. Sign in again to continue." }`. It adds the identity atomically, increments the session version, and clears pending email and password-reset links. Clear the client's stored JWT and sign in again. Tenant databases, API keys, local password, username, email and administrator membership are preserved. There is one GitHub identity per account; replacing, unlinking and account merging are not implemented.
+
+## Profile photos
+
+Successful GitHub sign-in and connection import the authenticated profile's GitHub-hosted avatar when available. Login and profile responses include `avatar_url`, `avatar_source` and `onboarding_completed`. Later sign-ins refresh the GitHub default but preserve an explicit upload or removal. Missing or invalid avatar URLs do not block authentication. Users without a photo can complete or skip optional photo setup after sign-in. See [User Profile](/api-reference/user-profile#profile-photos-and-onboarding) for upload limits, public image access and onboarding endpoints.
 
 ## Limits and errors
 
