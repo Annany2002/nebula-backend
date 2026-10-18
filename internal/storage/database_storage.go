@@ -74,6 +74,11 @@ func ConnectMetadataDB(cfg *config.Config) (*sql.DB, error) {
 		return nil, fmt.Errorf("ensure account verification tables: %w", err)
 	}
 
+	if err = ensureGitHubOAuthTables(db); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("ensure GitHub OAuth tables: %w", err)
+	}
+
 	// --- Ensure 'databases' table exists ---
 	createDatabasesTableSQL := `
 	CREATE TABLE IF NOT EXISTS databases (

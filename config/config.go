@@ -18,6 +18,7 @@ var (
 
 // Config holds application configuration values
 type Config struct {
+	GitHub         GitHubConfig
 	Email          EmailConfig
 	ServerPort     string
 	JWTSecret      string
@@ -74,8 +75,13 @@ func LoadConfig() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	github, err := loadGitHubConfig()
+	if err != nil {
+		return nil, err
+	}
 	// Return final Config struct
 	cfg := &Config{
+		GitHub:         github,
 		Email:          email,
 		ServerPort:     port,
 		JWTSecret:      jwtSecret,
