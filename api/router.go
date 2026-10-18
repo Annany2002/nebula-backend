@@ -96,6 +96,8 @@ func SetupRouterWithAuthProviders(metaDB *sql.DB, cfg *config.Config, sender ema
 
 	// Separate group for JWT-only protected routes ---
 	// Example: Account management, API Key generation
+	router.GET("/avatars/:avatar_id", authHandler.PublicAvatar)
+
 	accountRoutes := router.Group("/api/v1/account")
 	accountRoutes.Use(middleware.AuthMiddleware(cfg))
 	accountRoutes.Use(middleware.RequireAccountAccess(metaDB))
@@ -105,6 +107,9 @@ func SetupRouterWithAuthProviders(metaDB *sql.DB, cfg *config.Config, sender ema
 		accountRoutes.GET("/summary", authHandler.AccountSummary)
 		accountRoutes.POST("/identities/github/start", authHandler.GitHubLinkStart)
 		accountRoutes.PUT("/user/me", authHandler.UpdateCurrentUser)
+		accountRoutes.POST("/user/me/avatar", authHandler.UploadAvatar)
+		accountRoutes.DELETE("/user/me/avatar", authHandler.DeleteAvatar)
+		accountRoutes.POST("/user/me/onboarding", authHandler.CompleteOnboarding)
 
 		// API Key Management
 		accountRoutes.GET("/databases/:db_name/apikey", dbHandler.GetAPIKey)

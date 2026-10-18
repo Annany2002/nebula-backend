@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/Annany2002/nebula-backend/api"
+	"github.com/Annany2002/nebula-backend/api/models"
 	"github.com/Annany2002/nebula-backend/config"
 	"github.com/Annany2002/nebula-backend/internal/accounttoken"
 	"github.com/Annany2002/nebula-backend/internal/auth"
@@ -318,4 +319,25 @@ func TestAuthProviderDiscoveryExposesOnlyEnabledMethods(t *testing.T) {
 	f.router = api.SetupRouter(f.meta, f.cfg)
 	out = f.request("GET", "/auth/providers", "", "")
 	require.JSONEq(t, `{"providers":{"password":true,"github":false}}`, out.Body.String())
+}
+
+func TestGitHubLoginImportsSafeAvatarWithoutRequiringOne(t *testing.T) {
+	for _, imageURL := range []string{"https://avatars.githubusercontent.com/u/12345?v=4", "https://untrusted.example.test/photo"} {
+		t.Run(imageURL, func(t *testing.T) {
+			f, provider := githubFixture(t)
+			provider.profile.AvatarURL = imageURL
+			out := githubCallback(t, f, githubStart(t, f, false))
+			require.Equal(t, 200, out.Code, out.Body.String())
+			var result models.LoginResponse
+			require.NoError(t, json.Unmarshal(out.Body.Bytes(), &result))
+			if strings.Contains(imageURL, "avatars.githubusercontent.com") {
+				require.Equal(t, imageURL, result.User.AvatarURL)
+				require.Equal(t, "github", result.User.AvatarSource)
+				require.True(t, result.User.OnboardingCompleted)
+			} else {
+				require.Empty(t, result.User.AvatarURL)
+				require.False(t, result.User.OnboardingCompleted)
+			}
+		})
+	}
 }

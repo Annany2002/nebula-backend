@@ -81,22 +81,22 @@ func TestGitHubStatesAreBoundedPersistentAndConsumedOnce(t *testing.T) {
 func TestGitHubNewAccountsAreAtomicAndProviderIdentityIsStable(t *testing.T) {
 	db := githubStoreFixture(t)
 	ctx := context.Background()
-	user, err := ResolveGitHubAccount(ctx, db, "12345", "octocat", "verified@example.test", true, GitHubLinkIntent{})
+	user, err := ResolveGitHubAccount(ctx, db, "12345", "octocat", "verified@example.test", true, GitHubLinkIntent{}, "")
 	require.NoError(t, err)
 	require.True(t, user.EmailVerified)
 	require.True(t, user.VerificationRequired)
 	require.Empty(t, user.PasswordHash)
 	require.Equal(t, "user", user.Role)
-	returned, err := ResolveGitHubAccount(ctx, db, "12345", "changed-login", "different@example.test", false, GitHubLinkIntent{})
+	returned, err := ResolveGitHubAccount(ctx, db, "12345", "changed-login", "different@example.test", false, GitHubLinkIntent{}, "")
 	require.NoError(t, err)
 	require.Equal(t, user.UserId, returned.UserId)
 	require.Equal(t, user.Email, returned.Email)
 	require.Equal(t, user.Username, returned.Username)
-	_, err = ResolveGitHubAccount(ctx, db, "9999", "other", "OWNER@example.test", false, GitHubLinkIntent{})
+	_, err = ResolveGitHubAccount(ctx, db, "9999", "other", "OWNER@example.test", false, GitHubLinkIntent{}, "")
 	require.ErrorIs(t, err, ErrGitHubConflict)
 	_, err = db.Exec(`INSERT INTO account_suspensions(user_id) VALUES(?)`, user.UserId)
 	require.NoError(t, err)
-	_, err = ResolveGitHubAccount(ctx, db, "12345", "octocat", "verified@example.test", true, GitHubLinkIntent{})
+	_, err = ResolveGitHubAccount(ctx, db, "12345", "octocat", "verified@example.test", true, GitHubLinkIntent{}, "")
 	require.ErrorIs(t, err, ErrGitHubAccount)
 	var count int
 	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM users`).Scan(&count))
@@ -104,7 +104,7 @@ func TestGitHubNewAccountsAreAtomicAndProviderIdentityIsStable(t *testing.T) {
 	// Failure after inserting an account rolls back both identity and email proof.
 	_, err = db.Exec(`CREATE TRIGGER reject_github_identity BEFORE INSERT ON account_oauth_identities BEGIN SELECT RAISE(ABORT,'fixture'); END`)
 	require.NoError(t, err)
-	_, err = ResolveGitHubAccount(ctx, db, "7777", "rollback", "rollback@example.test", true, GitHubLinkIntent{})
+	_, err = ResolveGitHubAccount(ctx, db, "7777", "rollback", "rollback@example.test", true, GitHubLinkIntent{}, "")
 	require.Error(t, err)
 	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM users WHERE email='rollback@example.test'`).Scan(&count))
 	require.Zero(t, count)
@@ -116,7 +116,7 @@ func TestGitHubExplicitLinkIsSessionBoundAndRevokesExistingCredentials(t *testin
 	intent := GitHubLinkIntent{UserID: "owner", SessionVersion: 0}
 	_, err := db.Exec(`INSERT INTO account_email_verifications(user_id,pending_email) VALUES('owner','pending@example.test'); INSERT INTO account_email_tokens(token_hash,user_id,source_email,target_email,purpose,expires_at) VALUES('email','owner','owner@example.test','pending@example.test','change_email',9999999999); INSERT INTO account_password_reset_tokens(token_hash,user_id,source_email,session_version,expires_at) VALUES('reset','owner','owner@example.test',0,9999999999);`)
 	require.NoError(t, err)
-	user, err := ResolveGitHubAccount(ctx, db, "12345", "octocat", "different@example.test", true, intent)
+	user, err := ResolveGitHubAccount(ctx, db, "12345", "octocat", "different@example.test", true, intent, "")
 	require.NoError(t, err)
 	require.Equal(t, "owner", user.UserId)
 	require.Equal(t, "owner@example.test", user.Email)
@@ -128,14 +128,14 @@ func TestGitHubExplicitLinkIsSessionBoundAndRevokesExistingCredentials(t *testin
 		require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM `+table).Scan(&count))
 		require.Zero(t, count)
 	}
-	_, err = ResolveGitHubAccount(ctx, db, "other", "other", "other@example.test", false, intent)
+	_, err = ResolveGitHubAccount(ctx, db, "other", "other", "other@example.test", false, intent, "")
 	require.ErrorIs(t, err, ErrGitHubAccount)
-	_, err = ResolveGitHubAccount(ctx, db, "12345", "octocat", "changed@example.test", false, GitHubLinkIntent{UserID: "owner", SessionVersion: 1})
+	_, err = ResolveGitHubAccount(ctx, db, "12345", "octocat", "changed@example.test", false, GitHubLinkIntent{UserID: "owner", SessionVersion: 1}, "")
 	require.ErrorIs(t, err, ErrGitHubConflict)
 	// A different local account cannot claim an existing immutable GitHub subject.
 	_, err = CreateUser(ctx, db, "other", "other_account", "other@example.test", "hash")
 	require.NoError(t, err)
-	_, err = ResolveGitHubAccount(ctx, db, "12345", "octocat", "verified@example.test", false, GitHubLinkIntent{UserID: "other"})
+	_, err = ResolveGitHubAccount(ctx, db, "12345", "octocat", "verified@example.test", false, GitHubLinkIntent{UserID: "other"}, "")
 	require.ErrorIs(t, err, ErrGitHubConflict)
 }
 
@@ -149,7 +149,7 @@ func TestGitHubConcurrentCreationKeepsOneAccountAndIdentity(t *testing.T) {
 		workers.Add(1)
 		go func() {
 			defer workers.Done()
-			user, err := ResolveGitHubAccount(ctx, db, "12345", "octocat", "verified@example.test", false, GitHubLinkIntent{})
+			user, err := ResolveGitHubAccount(ctx, db, "12345", "octocat", "verified@example.test", false, GitHubLinkIntent{}, "")
 			if err != nil {
 				failures <- err
 				return
@@ -191,7 +191,7 @@ func TestGitHubLinkRejectsChangedAndDeletedAccounts(t *testing.T) {
 			require.NoError(t, ReserveGitHubState(ctx, db, "digest", "challenge", "peer", GitHubLinkIntent{UserID: "owner"}, time.Now()))
 			_, err := db.Exec(change)
 			require.NoError(t, err)
-			_, err = ResolveGitHubAccount(ctx, db, "12345", "octocat", "verified@example.test", false, GitHubLinkIntent{UserID: "owner"})
+			_, err = ResolveGitHubAccount(ctx, db, "12345", "octocat", "verified@example.test", false, GitHubLinkIntent{UserID: "owner"}, "")
 			require.Error(t, err)
 			var count int
 			require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM account_oauth_identities`).Scan(&count))

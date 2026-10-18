@@ -43,6 +43,9 @@ type UpdateProfileRequest struct {
 
 // UserProfileResponse defines the structure for user profile response (without password)
 type UserProfileResponse struct {
+	AvatarURL            string `json:"avatar_url"`
+	AvatarSource         string `json:"avatar_source"`
+	OnboardingCompleted  bool   `json:"onboarding_completed"`
 	Role                 string `json:"role"`
 	EmailVerified        bool   `json:"email_verified"`
 	VerificationRequired bool   `json:"verification_required"`

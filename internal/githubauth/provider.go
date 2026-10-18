@@ -15,6 +15,7 @@ import (
 	"unicode"
 
 	"github.com/Annany2002/nebula-backend/config"
+	"github.com/Annany2002/nebula-backend/internal/avatar"
 	"github.com/Annany2002/nebula-backend/internal/verification"
 )
 
@@ -29,7 +30,7 @@ var (
 )
 
 // Profile contains only the identity needed to resolve a Nebula account.
-type Profile struct{ Subject, Login, Email string }
+type Profile struct{ Subject, Login, Email, AvatarURL string }
 
 // Provider keeps remote credential exchange injectable without exposing configurable endpoints.
 type Provider interface {
@@ -67,9 +68,10 @@ func (p *githubProvider) Exchange(ctx context.Context, code, verifier string) (P
 		return profile, ErrProvider
 	}
 	var user struct {
-		ID    int64  `json:"id"`
-		Login string `json:"login"`
-		Type  string `json:"type"`
+		AvatarURL string `json:"avatar_url"`
+		ID        int64  `json:"id"`
+		Login     string `json:"login"`
+		Type      string `json:"type"`
 	}
 	if err := p.request(ctx, http.MethodGet, "https://api.github.com/user", nil, token.AccessToken, &user); err != nil {
 		return profile, err
@@ -101,7 +103,7 @@ func (p *githubProvider) Exchange(ctx context.Context, code, verifier string) (P
 			if address == "" {
 				return profile, ErrVerifiedEmail
 			}
-			return Profile{Subject: strconv.FormatInt(user.ID, 10), Login: user.Login, Email: address}, nil
+			return Profile{Subject: strconv.FormatInt(user.ID, 10), Login: user.Login, Email: address, AvatarURL: avatar.GitHubURL(user.AvatarURL)}, nil
 		}
 	}
 	return profile, ErrVerifiedEmail

@@ -139,3 +139,42 @@ A completed password reset cancels pending email-change links and revokes prior 
 Only the most recent pending target can be confirmed. If that delivery fails, an earlier successfully delivered pending request is retained. Confirmation of an address already claimed by another account returns `409` with `code: "email_conflict"` and preserves the current email.
 
 When verification is disabled, legacy accounts keep the existing immediate email-update behavior and may update both fields together. Accounts already subject to verification cannot bypass confirmation by disabling SMTP; their email changes return `503` with `code: "verification_disabled"` until delivery is configured again.
+
+
+## Profile photos and onboarding
+
+Login, current-profile and successful profile-update responses include:
+
+| Field | Meaning |
+| --- | --- |
+| `avatar_url` | GitHub HTTPS image URL, relative `/avatars/<asset-id>` URL, or an empty string |
+| `avatar_source` | `github`, `upload`, `none` (explicit removal), or empty (not configured) |
+| `onboarding_completed` | Persisted completion, including choosing to skip |
+
+Resolve relative avatar URLs against the backend origin, not the frontend origin. GitHub sign-in and connection import the provider's avatar when available. Later sign-ins refresh that default but preserve an uploaded photo or explicit removal. Missing or invalid provider images do not prevent authentication. Images that fail to load should fall back to initials.
+
+### Upload a photo
+
+`POST /api/v1/account/user/me/avatar` requires an owner JWT and multipart form data containing exactly one file named `avatar`.
+
+```bash
+curl -X POST http://localhost:8080/api/v1/account/user/me/avatar \
+  -H "Authorization: Bearer <your-jwt-token>" \
+  -F "avatar=@photo.png"
+```
+
+JPEG, PNG and WebP images are accepted up to **2 MiB**, **4096 pixels per side**, and **8,388,608 total pixels**. The server checks decoded content independently of filenames or supplied MIME types, center-crops to 256 × 256, and encodes a JPEG without original metadata. Transparency is flattened onto white. The image is stored with account metadata and deleted with the account. A successful upload returns the current profile directly with HTTP 200 and completes onboarding.
+
+Profile images are public through `GET /avatars/<asset-id>`. Asset IDs are random and do not expose user IDs or file paths. Responses contain only normalized JPEG bytes, use `nosniff` and `no-store`, and do not reveal account details. Replacing or removing a photo makes the old asset URL return 404. Downloaded copies cannot be recalled.
+
+Invalid content returns 400 (`invalid_avatar`), oversized payloads return 413 (`avatar_too_large`), invalid multipart content type returns 415, and a full image-processing budget returns 503 (`avatar_busy`). Rejected uploads leave the current photo unchanged. Writes are not automatically retried; check the current profile after an uncertain response.
+
+### Remove a photo
+
+`DELETE /api/v1/account/user/me/avatar` requires an owner JWT, accepts no payload, and returns the current profile directly with HTTP 200. It clears stored image bytes and records an explicit opt-out from future automatic GitHub imports. Repeating removal is safe. Initials can be shown instead.
+
+### Complete or skip onboarding
+
+`POST /api/v1/account/user/me/onboarding` requires an owner JWT, accepts no payload, and returns the current profile directly with HTTP 200. It sets `onboarding_completed` to `true` without changing the avatar. Repeating it is safe. New and existing accounts without recorded completion begin with `false`; the frontend offers photo setup after sign-in and allows skipping. Avatar setup never requires SMTP.
+
+Database API keys cannot upload/remove account photos or complete onboarding. Older servers omit these profile fields and do not expose the new routes.
