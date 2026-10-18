@@ -5,6 +5,9 @@ import "time"
 
 // User defines the structure for user data in the DB
 type UserMetadata struct {
+	AvatarURL            string    `json:"avatar_url"`
+	AvatarSource         string    `json:"avatar_source"`
+	OnboardingCompleted  bool      `json:"onboarding_completed"`
 	Role                 string    `json:"-"`
 	SessionVersion       int       `json:"-"`
 	UserId               string    `json:"userId"`

@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/Annany2002/nebula-backend/internal/avatar"
 	"github.com/Annany2002/nebula-backend/internal/domain"
 )
 
@@ -104,8 +105,8 @@ func ClaimGitHubState(ctx context.Context, db *sql.DB, digest, challenge string,
 }
 
 // ResolveGitHubAccount atomically resolves immutable provider identity without email auto-linking.
-// Existing local profile and verification state are never replaced by provider profile changes.
-func ResolveGitHubAccount(ctx context.Context, db *sql.DB, subject, login, address string, required bool, link GitHubLinkIntent) (*domain.UserMetadata, error) {
+// Existing username, email and verification state are never replaced by provider changes.
+func ResolveGitHubAccount(ctx context.Context, db *sql.DB, subject, login, address string, required bool, link GitHubLinkIntent, avatarURL string) (*domain.UserMetadata, error) {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -153,6 +154,13 @@ func ResolveGitHubAccount(ctx context.Context, db *sql.DB, subject, login, addre
 	}
 	if status.Suspended || (status.Required && !status.Verified) {
 		return nil, ErrGitHubAccount
+	}
+	// Provider defaults may refresh, but never replace an explicit upload or removal.
+	if imageURL := avatar.GitHubURL(avatarURL); imageURL != "" {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO account_profiles(user_id,avatar_url,avatar_source,onboarding_completed) VALUES(?,?,'github',1)
+   ON CONFLICT(user_id) DO UPDATE SET avatar_url=excluded.avatar_url,avatar_source='github',onboarding_completed=1 WHERE account_profiles.avatar_source IN ('','github')`, owner, imageURL); err != nil {
+			return nil, err
+		}
 	}
 	user, err := scanUser(tx.QueryRowContext(ctx, userSelect+`WHERE u.user_id=?`, owner))
 	if err != nil {

@@ -172,3 +172,15 @@ func TestProviderDoesNotFollowRedirectsOrRetryTransportErrors(t *testing.T) {
 	_, err = p.Exchange(ctx, "code", "verifier")
 	require.ErrorIs(t, err, context.Canceled)
 }
+
+func TestProviderReadsAvatarOnlyFromTheAuthenticatedGitHubProfile(t *testing.T) {
+	p := providerFixture(t, func(request *http.Request) *http.Response {
+		if request.URL.Path == "/user" {
+			return reply(`{"id":12345,"login":"octocat","type":"User","avatar_url":"https://avatars.githubusercontent.com/u/12345?v=4"}`, 200)
+		}
+		return nil
+	})
+	profile, err := p.Exchange(context.Background(), "code", "verifier")
+	require.NoError(t, err)
+	require.Equal(t, "https://avatars.githubusercontent.com/u/12345?v=4", profile.AvatarURL)
+}

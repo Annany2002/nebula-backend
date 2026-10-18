@@ -183,6 +183,9 @@ func (h *AuthHandler) GetCurrentUser(c *gin.Context) {
 	// Return user profile without password hash
 	c.JSON(http.StatusOK, models.UserProfileResponse{
 		Role:                 user.Role,
+		AvatarURL:            user.AvatarURL,
+		AvatarSource:         user.AvatarSource,
+		OnboardingCompleted:  user.OnboardingCompleted,
 		EmailVerified:        user.EmailVerified,
 		VerificationRequired: user.VerificationRequired,
 		PendingEmail:         user.PendingEmail,
@@ -236,6 +239,9 @@ func (h *AuthHandler) UpdateCurrentUser(c *gin.Context) {
 		"message": "Profile updated successfully",
 		"user": models.UserProfileResponse{
 			Role:                 updatedUser.Role,
+			AvatarURL:            updatedUser.AvatarURL,
+			AvatarSource:         updatedUser.AvatarSource,
+			OnboardingCompleted:  updatedUser.OnboardingCompleted,
 			EmailVerified:        updatedUser.EmailVerified,
 			VerificationRequired: updatedUser.VerificationRequired,
 			PendingEmail:         updatedUser.PendingEmail,

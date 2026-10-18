@@ -100,6 +100,6 @@ func (s *Service) Complete(ctx context.Context, code, state, verifier string) (*
 	if err != nil {
 		return nil, false, err
 	}
-	user, err := storage.ResolveGitHubAccount(ctx, s.db, profile.Subject, profile.Login, profile.Email, s.verificationRequired, intent)
+	user, err := storage.ResolveGitHubAccount(ctx, s.db, profile.Subject, profile.Login, profile.Email, s.verificationRequired, intent, profile.AvatarURL)
 	return user, intent.UserID != "", err
 }
