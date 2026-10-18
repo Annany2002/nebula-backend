@@ -1,0 +1,129 @@
+---
+title: "GitHub sign-in"
+description: "Configure GitHub OAuth, exchange authorization codes and explicitly link existing accounts."
+---
+
+GitHub sign-in is optional and disabled by default. It uses GitHub's authorization-code flow with S256 PKCE and returns the same Nebula JWT session contract as password login. SMTP is not required.
+
+<Warning>
+This backend contract requires a compatible frontend callback. Deploy the Nebula frontend version providing `/auth/github/callback` and a per-attempt verifier before enabling this provider. Deploying the backend alone does not add a sign-in button.
+</Warning>
+
+## Configuration
+
+Register an [OAuth app in GitHub](https://github.com/settings/developers). Use your frontend origin for its homepage and register the exact frontend callback URL below. Separate local and production OAuth apps keep credentials and callbacks independent.
+
+```bash
+GITHUB_OAUTH_ENABLED=true
+GITHUB_OAUTH_CLIENT_ID=your-client-id
+GITHUB_OAUTH_CLIENT_SECRET=your-client-secret
+GITHUB_OAUTH_REDIRECT_URL=https://app.example.com/auth/github/callback
+```
+
+The redirect must end in exactly `/auth/github/callback`, with no query, fragment or embedded credentials. HTTPS is required except for loopback HTTP, such as `http://localhost:3000/auth/github/callback`. The client secret belongs only in the backend environment. Never put it in a `VITE_*` variable, repository or browser bundle.
+
+When disabled, no OAuth credentials are required and normal password authentication remains available. Missing or invalid enabled-provider configuration prevents startup. Existing Nebula JWTs remain valid when the provider is disabled; use account suspension or credential/session revocation to deny those sessions.
+
+## Browser sequence
+
+1. Generate a cryptographically random, per-attempt PKCE verifier: 43–128 ASCII unreserved characters (`A-Z`, `a-z`, `0-9`, `-._~`). Keep it in the initiating tab's session storage until the callback. Never reuse a verifier across attempts or send it to analytics.
+2. Compute `BASE64URL(SHA256(verifier))` without padding and send that challenge to the start endpoint. Store the state from the returned authorization URL alongside the verifier before redirecting the browser.
+3. Redirect to `authorization_url`. GitHub sends the browser to the configured frontend callback with `code` and `state`, or an authorization error.
+4. Capture and remove callback query parameters before analytics or other third-party scripts run. Require the returned state to match this tab's pending attempt. Handle consent denial locally; it must not create a session.
+5. Submit the code, state and original verifier to the backend callback **once**. Clear pending browser material afterward. Never retry the code exchange automatically. A failed or interrupted exchange requires a fresh start.
+6. Store the returned Nebula JWT using the application's normal session handling. GitHub access tokens and the client secret never cross this response boundary.
+
+See GitHub's [OAuth flow](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps) and [verified email API](https://docs.github.com/en/rest/users/emails#list-email-addresses-for-the-authenticated-user) for the provider contracts.
+
+## Discover available providers
+
+`GET /auth/providers` is public and uses `Cache-Control: no-store`:
+
+```json
+{ "providers": { "password": true, "github": false } }
+```
+
+Only advertise GitHub sign-in in clients when `github` is true. This endpoint never returns credentials or authorization URLs.
+
+## Start sign-in
+
+`POST /auth/github/start` is public. Use `Content-Type: application/json`:
+
+```json
+{ "code_challenge": "<43-character canonical base64url SHA-256 challenge>" }
+```
+
+A successful `200` response contains:
+
+```json
+{
+  "authorization_url": "https://github.com/login/oauth/authorize?...",
+  "expires_in": 600
+}
+```
+
+The server fixes the provider, client ID, scope (`user:email`), callback, S256 method and generated state. Caller-supplied redirect URLs and unknown fields are rejected. Each state lasts ten minutes and is bound to the client's challenge. Only its SHA-256 digest is persisted; authorization codes, verifiers and GitHub access tokens are not stored.
+
+## Complete the callback
+
+`POST /auth/github/callback` is public and accepts:
+
+```json
+{
+  "code": "<temporary GitHub authorization code>",
+  "state": "<state from the initiating authorization URL>",
+  "code_verifier": "<the original tab-bound PKCE verifier>"
+}
+```
+
+The backend bounds provider exchanges to eight concurrent callbacks, validates the state and proof, claims the attempt once, then exchanges the code server-to-server and reads GitHub's immutable numeric user ID and verified primary email. Public profile email fields are not accepted as email proof. Responses are bounded, remote redirects are rejected, and provider calls share a fifteen-second callback deadline with no retries.
+
+Successful sign-in returns `200` with the [login response](/api-reference/authentication#login): `message`, `user` and `token`. No GitHub access token is returned. `GET /auth/github/callback` is not a backend redirect handler; the registered redirect is the **frontend** callback, which explicitly posts this JSON payload.
+
+## Account resolution and linking
+
+- A previously linked GitHub ID resolves its existing Nebula account. Provider login/email changes do not rewrite the local profile or its verification policy.
+- A new ID with a distinct email creates an ordinary, non-admin account with verified primary-email proof. It has no password credential. Password login fails until the owner separately sets a password through configured recovery.
+- An existing local email, including a match with different ASCII letter casing, returns `409 github_account_conflict`. Matching an email never merges accounts, transfers data or proves ownership of an existing local account.
+- Suspended accounts and accounts with an outstanding local verification requirement cannot acquire a session through this provider.
+
+To link GitHub to an existing password account, first sign in normally and call `POST /api/v1/account/identities/github/start` with a current owner JWT and:
+
+```json
+{
+  "code_challenge": "<S256 challenge>",
+  "current_password": "<current account password>"
+}
+```
+
+This returns the same start response but binds the transaction to the owner and session version captured before password reauthentication. Complete the same frontend/browser flow. Linking rejects a GitHub ID already assigned to another account, an account that already has GitHub linked, or a stale/suspended/unverified owner.
+
+Successful linking returns only `200 { "message": "GitHub linked. Sign in again to continue." }`. It adds the identity atomically, increments the session version, and clears pending email and password-reset links. Clear the client's stored JWT and sign in again. Tenant databases, API keys, local password, profile and administrator membership are preserved. There is one GitHub identity per account; replacing, unlinking and account merging are not implemented.
+
+## Limits and errors
+
+All new request bodies use the shared 4 KiB account JSON limit; extra fields, trailing JSON and unsupported media types are rejected. OAuth state is capped at twenty attempts per client address per ten-minute retention window and ten thousand unexpired attempts globally. Consumed attempts count until expiry, so callback success does not reset the budget. Limits persist across backend restarts; `429` includes `Retry-After: 600`. The existing global request limit also applies.
+
+Direct remote requests cannot change the client address using forwarded headers. As with email budgets, `CF-Connecting-IP` is accepted only from a loopback connector. Adapt this trust boundary explicitly for other proxy topologies.
+
+| Status | Code | Meaning |
+| --- | --- | --- |
+| 400 | `invalid_github_oauth_request` | Malformed challenge, code, state, verifier or JSON. |
+| 400 | `invalid_github_oauth_state` | Unknown, expired, wrongly bound or already-claimed state; rejected provider code. |
+| 401 | `reauthentication_required` | Linking requires the current password and matching authenticated session. |
+| 403 | `github_verified_email_required` | GitHub did not provide one unambiguous verified primary email. |
+| 403 | `github_account_unavailable` | Missing, suspended, unverified or stale linking account. |
+| 408 | `request_timeout` | Callback/start work was cancelled or timed out. |
+| 409 | `github_account_conflict` | Explicit linking is required or the identity is already assigned. |
+| 429 | `github_oauth_rate_limited` | State capacity or per-client attempt budget was reached. |
+| 503 | `github_oauth_busy` | Eight callbacks are already active; `Retry-After: 5`. Start a fresh sign-in attempt. |
+| 503 | `github_oauth_disabled` | Provider is disabled. |
+| 503 | `github_oauth_unavailable` | Storage or remote provider work failed. |
+
+A correct proof claims the transaction before contacting GitHub. Upstream failure, cancellation or an uncertain response does not make it reusable. Restart sign-in instead of replaying the callback. A lost successful sign-in response can leave the new account created; a fresh GitHub attempt resolves that same identity. A lost linking response can leave the identity linked and sessions revoked; a fresh GitHub sign-in resolves the linked account. Error responses exclude provider tokens, codes, verifiers and raw upstream bodies. The provider adapter does not log credentials or response bodies; keep callback secrets out of backend query strings and custom request logging.
+
+## Verification
+
+Backend tests use temporary metadata/tenant databases and an injected provider or mocked HTTP transport; they never contact GitHub or send real mail. Coverage includes PKCE binding, expiry/replay, concurrent callbacks/account creation, email conflicts, reauthentication/session races, rollback, quotas, forwarded-header trust, suspended accounts, email pagination, bounded payloads, cancellation and provider failures.
+
+The Nebula frontend provides discovery-driven sign-in buttons, explicit callback confirmation and password-confirmed linking from Your account. Its automated checks cover both themes, responsive layouts, one-use exchanges and cross-tab session changes with mocked provider responses. Real consent-screen testing still requires a configured OAuth app and deployed compatible versions.

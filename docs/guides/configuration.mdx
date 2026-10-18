@@ -79,6 +79,12 @@ Deploy the backend endpoints and frontend `/forgot-password` and `/reset-passwor
 
 For local testing, `./scripts/dev-email.sh` enables both flags and captures mail in an isolated Mailpit inbox. No production credentials or domain are needed.
 
+### GitHub sign-in
+
+GitHub OAuth is disabled by default and does not require SMTP. Configure `GITHUB_OAUTH_CLIENT_ID`, `GITHUB_OAUTH_CLIENT_SECRET` and `GITHUB_OAUTH_REDIRECT_URL` before setting `GITHUB_OAUTH_ENABLED=true`. The redirect is the frontend `/auth/github/callback` URL, registered exactly in GitHub's OAuth app settings; HTTPS is required outside loopback. Keep the client secret only in the backend environment.
+
+Deploy the compatible frontend callback first. The backend exposes provider discovery, PKCE-bound start/callback endpoints and password-confirmed account linking. [GitHub sign-in](/api-reference/github-sign-in) is the canonical configuration and integration contract, including replay, account-conflict and uncertain-response handling.
+
 ### CORS
 
 Set explicit frontend origins for public deployments. CORS is a browser policy, not authentication or a firewall.

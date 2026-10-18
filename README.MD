@@ -97,6 +97,8 @@ Trusted server operators can grant or revoke membership using `go run ./cmd/admi
 
 ## Authentication
 
+Optional GitHub sign-in is available through the backend OAuth contract and is disabled by default. It requires a registered OAuth app and a compatible frontend `/auth/github/callback` flow. It uses S256 PKCE, immutable provider identity and explicit password-confirmed linking; it never silently merges matching email addresses. See [GitHub sign-in](docs/api-reference/github-sign-in.mdx) for configuration, endpoints, client integration and limits. SMTP is not required.
+
 - Public `/auth/signup` and `/auth/login` do not require credentials.
 - Account/profile and API key management use `Authorization: Bearer <jwt>`.
 - The current profile includes the account's current `user` or `admin` role. `GET /api/v1/account/summary` returns owner-scoped database, stored API key and ready backup counts from metadata; see the [account summary contract](docs/api-reference/account-summary.mdx).
