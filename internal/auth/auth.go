@@ -41,6 +41,10 @@ func HashPassword(password string) (string, error) {
 
 // CheckPasswordHash compares a plaintext password with a stored bcrypt hash
 func CheckPasswordHash(password, hash string) bool {
+	// OAuth-only accounts have no password credential.
+	if hash == "" {
+		return false
+	}
 	err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
 	// Log unexpected errors, but return false for mismatch or other errors
 	if err != nil && !errors.Is(err, bcrypt.ErrMismatchedHashAndPassword) {

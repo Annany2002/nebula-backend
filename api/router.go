@@ -16,6 +16,7 @@ import (
 	"github.com/Annany2002/nebula-backend/api/middleware" // Import middleware package
 	"github.com/Annany2002/nebula-backend/config"
 	"github.com/Annany2002/nebula-backend/internal/email"
+	"github.com/Annany2002/nebula-backend/internal/githubauth"
 	"github.com/Annany2002/nebula-backend/internal/logger"
 )
 
@@ -30,6 +31,11 @@ func SetupRouter(metaDB *sql.DB, cfg *config.Config) *gin.Engine {
 
 // SetupRouterWithEmailSender allows deployments and tests to supply an account mail adapter.
 func SetupRouterWithEmailSender(metaDB *sql.DB, cfg *config.Config, sender email.Sender) *gin.Engine {
+	return SetupRouterWithAuthProviders(metaDB, cfg, sender, githubauth.NewProvider(cfg.GitHub))
+}
+
+// SetupRouterWithAuthProviders supplies mail and GitHub adapters without changing endpoint trust.
+func SetupRouterWithAuthProviders(metaDB *sql.DB, cfg *config.Config, sender email.Sender, provider githubauth.Provider) *gin.Engine {
 	router := gin.Default() // Includes Logger and Recovery
 
 	// Configure CORS middleware
@@ -63,7 +69,7 @@ func SetupRouterWithEmailSender(metaDB *sql.DB, cfg *config.Config, sender email
 	router.Use(middleware.TelemetryMiddleware(metaDB))
 
 	// Initialize Handlers
-	authHandler := handlers.NewAuthHandlerWithSender(metaDB, cfg, sender)
+	authHandler := handlers.NewAuthHandlerWithProviders(metaDB, cfg, sender, provider)
 	dbHandler := handlers.NewDatabaseHandler(metaDB, cfg)
 	recordHandler := handlers.NewRecordHandler(metaDB, cfg)
 	tableHandler := handlers.NewTableHandler(metaDB, cfg)
@@ -77,8 +83,11 @@ func SetupRouterWithEmailSender(metaDB *sql.DB, cfg *config.Config, sender email
 	// Login, Signup routes
 	authRoutes := router.Group("/auth")
 	{ /* Routes using authHandler */
+		authRoutes.GET("/providers", authHandler.AuthProviders)
 		authRoutes.POST("/signup", middleware.LimitVerificationRequests(metaDB, cfg.Email.Enabled), authHandler.Signup)
 		authRoutes.POST("/login", authHandler.Login)
+		authRoutes.POST("/github/start", authHandler.GitHubStart)
+		authRoutes.POST("/github/callback", authHandler.GitHubCallback)
 		authRoutes.POST("/forgot-password", middleware.LimitPasswordResetRequests(metaDB, cfg.Email.PasswordResetEnabled), authHandler.ForgotPassword)
 		authRoutes.POST("/reset-password", middleware.LimitPasswordResetRequests(metaDB, cfg.Email.PasswordResetEnabled), authHandler.ResetPassword)
 		authRoutes.POST("/verify-email", authHandler.VerifyEmail)
@@ -94,6 +103,7 @@ func SetupRouterWithEmailSender(metaDB *sql.DB, cfg *config.Config, sender email
 		// User Profile Management
 		accountRoutes.GET("/user/me", authHandler.GetCurrentUser)
 		accountRoutes.GET("/summary", authHandler.AccountSummary)
+		accountRoutes.POST("/identities/github/start", authHandler.GitHubLinkStart)
 		accountRoutes.PUT("/user/me", authHandler.UpdateCurrentUser)
 
 		// API Key Management

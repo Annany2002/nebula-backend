@@ -12,6 +12,7 @@ import (
 	"github.com/Annany2002/nebula-backend/config"
 	"github.com/Annany2002/nebula-backend/internal/auth" // Import internal auth logic
 	"github.com/Annany2002/nebula-backend/internal/email"
+	"github.com/Annany2002/nebula-backend/internal/githubauth"
 	"github.com/Annany2002/nebula-backend/internal/logger"
 	"github.com/Annany2002/nebula-backend/internal/recovery"
 	"github.com/Annany2002/nebula-backend/internal/storage" // Import storage functions/errors
@@ -24,6 +25,7 @@ var (
 
 // AuthHandler holds dependencies for authentication handlers.
 type AuthHandler struct {
+	GitHub       *githubauth.Service
 	Recovery     *recovery.Service
 	Verification *verification.Service
 	DB           *sql.DB        // Metadata DB connection pool
@@ -38,7 +40,13 @@ func NewAuthHandler(db *sql.DB, cfg *config.Config) *AuthHandler {
 
 // NewAuthHandlerWithSender shares account verification with an injectable delivery boundary.
 func NewAuthHandlerWithSender(db *sql.DB, cfg *config.Config, sender email.Sender) *AuthHandler {
+	return NewAuthHandlerWithProviders(db, cfg, sender, githubauth.NewProvider(cfg.GitHub))
+}
+
+// NewAuthHandlerWithProviders allows hermetic mail and identity-provider tests.
+func NewAuthHandlerWithProviders(db *sql.DB, cfg *config.Config, sender email.Sender, provider githubauth.Provider) *AuthHandler {
 	return &AuthHandler{
+		GitHub:       githubauth.New(db, cfg.GitHub, provider, cfg.Email.Enabled),
 		Verification: verification.New(db, &cfg.Email, sender),
 		Recovery:     recovery.New(db, &cfg.Email, sender),
 		DB:           db,

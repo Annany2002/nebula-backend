@@ -65,13 +65,7 @@ func limitAccountEmailRequests(db *sql.DB, enabled bool, purpose string) gin.Han
 			c.Next()
 			return
 		}
-		ip := c.RemoteIP()
-		// The local Cloudflare connector supplies the client address; external callers cannot.
-		if address := net.ParseIP(ip); address != nil && address.IsLoopback() {
-			if client := net.ParseIP(c.GetHeader("CF-Connecting-IP")); client != nil {
-				ip = client.String()
-			}
-		}
+		ip := AccountClientIP(c)
 		digest := sha256.Sum256([]byte(ip))
 		allowed, err := storage.AllowEmailRequest(c.Request.Context(), db, hex.EncodeToString(digest[:]), time.Now())
 		if err != nil {
@@ -85,4 +79,15 @@ func limitAccountEmailRequests(db *sql.DB, enabled bool, purpose string) gin.Han
 		}
 		c.Next()
 	}
+}
+
+// AccountClientIP trusts the Cloudflare client header only from a loopback connector.
+func AccountClientIP(c *gin.Context) string {
+	ip := c.RemoteIP()
+	if address := net.ParseIP(ip); address != nil && address.IsLoopback() {
+		if client := net.ParseIP(c.GetHeader("CF-Connecting-IP")); client != nil {
+			return client.String()
+		}
+	}
+	return ip
 }
